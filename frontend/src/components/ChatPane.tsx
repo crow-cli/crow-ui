@@ -9,6 +9,7 @@ import {
   type AcpNotification,
   type ConnectionStatus,
   type SessionInfo,
+  type AgentConfig,
 } from "../lib/acp-client";
 import { groupNotifications, mergeToolCalls } from "../lib/acp-utils";
 import * as acpStore from "../lib/acp-store";
@@ -25,13 +26,22 @@ type GroupItem = GroupedNotifications[number][number];
 /** Cache for file contents used in diffs — kept for backward compat */
 
 interface ChatPaneProps {
+  sessionId: string;
+  agentConfig: AgentConfig;
+  workspaceRoot: string | null;
   onClose: () => void;
   onFileChanged?: (path: string, content: string) => void;
 }
 
 // ─── ChatPane ────────────────────────────────────────────────────────────────
 
-export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
+export default function ChatPane({
+  sessionId,
+  agentConfig,
+  workspaceRoot,
+  onClose,
+  onFileChanged,
+}: ChatPaneProps) {
   const [input, setInput] = useState("");
   const [notifications, setNotifications] = useState<AcpNotification[]>([]);
   const [connectionStatus, setConnectionStatus] =
@@ -52,21 +62,37 @@ export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
 
   // Sync from store
   useEffect(() => {
-    const s = acpStore.getState();
+    const s = acpStore.getSession(sessionId);
     setNotifications(s.notifications);
     setConnectionStatus(s.status);
     setSessionInfo(s.sessionInfo);
     setPendingPermission(s.pendingPermission);
 
-    const unsub = acpStore.subscribe(() => {
-      const s2 = acpStore.getState();
+    const unsub = acpStore.subscribeToSession(sessionId, () => {
+      const s2 = acpStore.getSession(sessionId);
       setNotifications(s2.notifications);
       setConnectionStatus(s2.status);
       setSessionInfo(s2.sessionInfo);
       setPendingPermission(s2.pendingPermission);
     });
     return unsub;
-  }, []);
+  }, [sessionId]);
+
+  // Create session when workspace becomes available
+  useEffect(() => {
+    if (!workspaceRoot || !agentConfig) return;
+    const s = acpStore.getSession(sessionId);
+    if (!s.agentConfig) {
+      acpStore.createSession(sessionId, agentConfig, workspaceRoot);
+    }
+  }, [sessionId, workspaceRoot, agentConfig]);
+
+  // Close session on unmount (tab deleted)
+  useEffect(() => {
+    return () => {
+      acpStore.closeSession(sessionId);
+    };
+  }, [sessionId]);
 
   // Auto-scroll on new notifications
   useEffect(() => {
@@ -109,7 +135,7 @@ export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
     ) as GroupItem[];
     const groups = groupNotifications(sessionNotes);
 
-    const client = acpStore.getClient(acpStore.getDefaultSessionId() ?? "");
+    const client = acpStore.getClient(sessionId);
     if (!client) return;
 
     for (const group of groups) {
@@ -240,32 +266,28 @@ export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || connectionStatus !== "ready") return;
-    const client = acpStore.getClient(acpStore.getDefaultSessionId() ?? "");
-    if (!client) return;
     const text = input.trim();
     setInput("");
     try {
-      await client.prompt(text);
+      await acpStore.prompt(sessionId, text);
     } catch (err) {
       console.error("Prompt failed:", err);
     }
-  }, [input, connectionStatus]);
+  }, [input, connectionStatus, sessionId]);
 
   const handleCancel = useCallback(async () => {
-    const client = acpStore.getClient(acpStore.getDefaultSessionId() ?? "");
-    if (!client) return;
     try {
-      await client.cancel();
+      await acpStore.cancel(sessionId);
     } catch (err) {
       console.error("Cancel failed:", err);
     }
-  }, []);
+  }, [sessionId]);
 
   const handleResolvePermission = useCallback(
     (response: any) => {
       if (pendingPermission) {
         pendingPermission.resolve(response);
-        acpStore.getState().pendingPermission = null;
+        acpStore.getSession(sessionId).pendingPermission = null;
         setPendingPermission(null);
       }
     },
@@ -275,10 +297,10 @@ export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
   const handleRejectPermission = useCallback(() => {
     if (pendingPermission) {
       pendingPermission.reject(new Error("Cancelled"));
-      acpStore.getState().pendingPermission = null;
+      acpStore.getSession(sessionId).pendingPermission = null;
       setPendingPermission(null);
     }
-  }, [pendingPermission]);
+  }, [pendingPermission, sessionId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -321,7 +343,7 @@ export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
   }, [notifications]);
 
   return (
-    <div style={styles.root}>
+    <div className="flex flex-col h-full min-w-0 bg-background text-text-primary text-[13px] overflow-hidden font-sans">
       <Header
         statusLabel={statusLabel}
         isReady={isReady}
@@ -342,12 +364,10 @@ export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
         />
       )}
 
-      <div className="chat-messages" style={styles.messages}>
+      <div className="chat-messages flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
         {messageGroups.length === 0 && (
-          <div style={styles.emptyState}>
-            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-              {statusLabel}
-            </div>
+          <div className="text-center text-text-secondary text-sm mt-10">
+            {statusLabel}
           </div>
         )}
         {messageGroups.map((group, idx) => (
@@ -368,6 +388,7 @@ export default function ChatPane({ onClose, onFileChanged }: ChatPaneProps) {
         onSend={handleSend}
         onKeyDown={handleKeyDown}
         disabled={!isReady}
+        inputRef={inputRef}
         placeholder={
           isReady
             ? `Ask ${sessionInfo?.agentDisplayName || "agent"}...`
@@ -399,35 +420,34 @@ function Header({
   onCancel: () => void;
   onClose: () => void;
 }) {
+  const statusColor = isStreaming
+    ? "bg-yellow-400"
+    : isReady
+      ? "bg-green-400"
+      : isConnecting
+        ? "bg-yellow-400"
+        : "bg-red-400";
+
   return (
-    <div style={styles.header}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: isStreaming
-              ? "var(--yellow)"
-              : isReady
-                ? "var(--green)"
-                : isConnecting
-                  ? "var(--yellow)"
-                  : "var(--red)",
-          }}
-        />
-        <span style={{ fontSize: 13, fontWeight: 600 }}>{agentName}</span>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          {statusLabel}
-        </span>
+    <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface shrink-0">
+      <div className="flex items-center gap-2">
+        <span className={`w-2 h-2 rounded-full ${statusColor}`} />
+        <span className="text-[13px] font-semibold">{agentName}</span>
+        <span className="text-[11px] text-text-secondary">{statusLabel}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="flex items-center gap-2">
         {isStreaming && (
-          <button onClick={onCancel} style={styles.stopBtn}>
+          <button
+            onClick={onCancel}
+            className="bg-destructive text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer"
+          >
             ⏹ Stop
           </button>
         )}
-        <button onClick={onClose} style={styles.closeBtn}>
+        <button
+          onClick={onClose}
+          className="bg-transparent border-none text-text-secondary hover:text-text-primary text-lg px-1 py-0.5 cursor-pointer"
+        >
           ✕
         </button>
       </div>
@@ -437,7 +457,7 @@ function Header({
 
 function ConnectionBar() {
   return (
-    <div style={styles.connectionBar}>
+    <div className="px-3 py-1 bg-red-500/10 border-b border-border text-destructive text-xs flex items-center gap-2 shrink-0">
       <span>Disconnected</span>
     </div>
   );
@@ -453,29 +473,16 @@ function PermissionBar({
   onReject: () => void;
 }) {
   return (
-    <div style={styles.permissionBar}>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: "var(--yellow)",
-          marginBottom: 4,
-        }}
-      >
+    <div className="px-3 py-2 bg-yellow-500/10 border-b border-border shrink-0">
+      <div className="text-xs font-semibold text-yellow-400 mb-1">
         Permission Request
       </div>
       {permission.toolCall?.title && (
-        <div
-          style={{
-            fontSize: 11,
-            color: "var(--text-secondary)",
-            marginBottom: 6,
-          }}
-        >
+        <div className="text-[11px] text-text-secondary mb-1.5">
           {permission.toolCall.title}
         </div>
       )}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <div className="flex gap-1.5 flex-wrap">
         {permission.options?.map((opt: any) => (
           <button
             key={opt.optionId}
@@ -484,35 +491,18 @@ function PermissionBar({
                 outcome: { outcome: "selected", optionId: opt.optionId },
               })
             }
-            style={{
-              padding: "2px 10px",
-              fontSize: 11,
-              borderRadius: 3,
-              border: "1px solid var(--border)",
-              background: opt.kind?.startsWith("allow")
-                ? "rgba(166,227,161,0.15)"
-                : "rgba(243,139,168,0.15)",
-              color: opt.kind?.startsWith("allow")
-                ? "var(--green)"
-                : "var(--red)",
-              cursor: "pointer",
-              fontWeight: 500,
-            }}
+            className={`px-2.5 py-0.5 text-[11px] rounded border border-border cursor-pointer font-medium ${
+              opt.kind?.startsWith("allow")
+                ? "bg-green-400/15 text-green-400"
+                : "bg-red-400/15 text-red-400"
+            }`}
           >
             {opt.name}
           </button>
         ))}
         <button
           onClick={onReject}
-          style={{
-            padding: "2px 10px",
-            fontSize: 11,
-            borderRadius: 3,
-            border: "1px solid var(--border)",
-            background: "transparent",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-          }}
+          className="px-2.5 py-0.5 text-[11px] rounded border border-border bg-transparent text-text-secondary cursor-pointer"
         >
           Cancel
         </button>
@@ -528,6 +518,7 @@ function InputBar({
   onKeyDown,
   disabled,
   placeholder,
+  inputRef,
 }: {
   input: string;
   setInput: (s: string) => void;
@@ -535,38 +526,28 @@ function InputBar({
   onKeyDown: (e: React.KeyboardEvent) => void;
   disabled: boolean;
   placeholder: string;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
-    <div style={styles.inputBar}>
+    <div className="px-3 py-2 border-t border-border flex gap-2 shrink-0">
       <input
-        ref={(el) => {
-          if (el && !disabled) el.focus();
-        }}
+        ref={inputRef}
         type="text"
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         disabled={disabled}
-        style={styles.input}
+        className="flex-1 px-2.5 py-1.5 bg-surface border border-border rounded-md text-text-primary text-[13px] outline-none"
       />
       <button
         onClick={onSend}
         disabled={disabled || !input.trim()}
-        style={{
-          padding: "6px 16px",
-          background:
-            !disabled && input.trim() ? "var(--accent)" : "var(--bg-tertiary)",
-          color:
-            !disabled && input.trim()
-              ? "var(--bg-hover)"
-              : "var(--text-muted)",
-          border: "none",
-          borderRadius: 4,
-          cursor: !disabled && input.trim() ? "pointer" : "default",
-          fontWeight: 600,
-          fontSize: 13,
-        }}
+        className={`px-4 py-1.5 rounded font-semibold text-[13px] border-none ${
+          !disabled && input.trim()
+            ? "bg-violet-500 text-white cursor-pointer"
+            : "bg-surface-elevated text-text-secondary cursor-default"
+        }`}
       >
         Send
       </button>
@@ -595,20 +576,8 @@ function MessageGroup({
     const text = extractGroupText(group);
     if (!text) return null;
     return (
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <div
-          style={{
-            maxWidth: "70%",
-            padding: "8px 12px",
-            background: "var(--accent-bg)",
-            borderRadius: "12px 12px 2px 12px",
-            fontSize: 13,
-            lineHeight: 1.5,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            color: "var(--text-accent)",
-          }}
-        >
+      <div className="flex justify-end">
+        <div className="ml-auto max-w-[70%] px-3 py-2 bg-violet-500/20 rounded-xl rounded-br-sm text-[13px] leading-relaxed whitespace-pre-wrap break-words text-text-primary">
           {text}
         </div>
       </div>
@@ -619,14 +588,7 @@ function MessageGroup({
     const text = extractGroupText(group);
     if (!text) return null;
     return (
-      <div
-        style={{
-          maxWidth: "85%",
-          fontSize: 13,
-          lineHeight: 1.6,
-          color: "var(--text-accent)",
-        }}
-      >
+      <div className="max-w-[85%] text-[13px] leading-relaxed text-text-primary">
         <Streamdown plugins={{ code, mermaid, math }} isAnimating={isStreaming}>
           {text}
         </Streamdown>
@@ -638,25 +600,11 @@ function MessageGroup({
     const text = extractGroupText(group);
     if (!text) return null;
     return (
-      <details
-        open
-        style={{ fontSize: 12, color: "var(--text-muted)", opacity: 0.7 }}
-      >
-        <summary
-          style={{ cursor: "pointer", fontStyle: "italic", userSelect: "none" }}
-        >
+      <details open className="text-xs text-text-secondary opacity-70">
+        <summary className="cursor-pointer italic select-none">
           💭 Thinking…
         </summary>
-        <div
-          style={{
-            marginTop: 4,
-            padding: "4px 8px",
-            borderLeft: "2px solid var(--text-muted)",
-            paddingLeft: 8,
-            whiteSpace: "pre-wrap",
-            fontSize: 12,
-          }}
-        >
+        <div className="mt-1 px-2 border-l-2 border-text-secondary pl-2 whitespace-pre-wrap text-xs">
           {text}
         </div>
       </details>
@@ -707,14 +655,7 @@ function ToolNotificationsBlock({
   try {
     const toolCalls = mergeToolCalls(validUpdates);
     return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-          maxWidth: "85%",
-        }}
-      >
+      <div className="flex flex-col gap-1 max-w-[85%]">
         {toolCalls.map((tc) => (
           <ToolCallAccordion
             key={tc.toolCallId}
@@ -745,12 +686,12 @@ function ToolCallAccordion({
   const title = tool.title || kind || "Tool call";
   const icon =
     status === "completed" ? "✅" : status === "failed" ? "❌" : "⏳";
-  const borderColor =
+  const borderColorClass =
     status === "completed"
-      ? "var(--green)"
+      ? "border-green-400/20"
       : status === "failed"
-        ? "var(--red)"
-        : "var(--yellow)";
+        ? "border-red-400/20"
+        : "border-yellow-400/20";
 
   // Extract terminal info from tool content (ACP spec: content array contains { type: "terminal", terminalId })
   const terminalContent = tool.content?.find((c: any) => c.type === "terminal");
@@ -804,55 +745,21 @@ function ToolCallAccordion({
   const isEdit = inferredKind === "edit" || hasDiffContent;
 
   return (
-    <div
-      style={{
-        fontSize: 12,
-        borderRadius: 6,
-        border: `1px solid ${borderColor}33`,
-        overflow: "hidden",
-        background: "var(--bg-secondary)",
-      }}
-    >
+    <div className={`text-xs rounded-md overflow-hidden bg-surface border ${borderColorClass}`}>
       <div
         onClick={() => setOpen(!open)}
-        style={{
-          padding: "4px 10px",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          cursor: "pointer",
-          userSelect: "none",
-        }}
+        className="px-2.5 py-1 flex items-center gap-1.5 cursor-pointer select-none"
       >
         <span>{icon}</span>
-        <code
-          style={{
-            flex: 1,
-            fontSize: 11,
-            fontFamily: "var(--mono)",
-            color: "var(--text-accent)",
-          }}
-        >
+        <code className="flex-1 text-[11px] font-mono text-text-primary truncate">
           {title}
         </code>
-        <span
-          style={{
-            fontSize: 10,
-            color: "var(--text-muted)",
-            userSelect: "none",
-          }}
-        >
+        <span className="text-[10px] text-text-secondary select-none">
           {open ? "▾" : "▸"}
         </span>
       </div>
       {open && (
-        <div
-          style={{
-            padding: "8px 10px",
-            borderTop: "1px solid var(--border)",
-            fontSize: 11,
-          }}
-        >
+        <div className="px-2.5 py-2 border-t border-border text-[11px]">
           {/* Terminal view — show live output as it runs (ACP spec) */}
           {isTerminal && terminalId ? (
             <InlineTerminal
@@ -865,9 +772,9 @@ function ToolCallAccordion({
           {/* File read view */}
           {isRead && fileContent && (
             <div>
-              <div style={viewHeaderStyle}>
+              <div className="text-text-muted mb-1 text-[10px] uppercase font-semibold flex items-center gap-1.5">
                 <span>📄 Read</span>
-                <code style={filePathStyle}>{filePath}</code>
+                <code className="text-[11px] text-text-primary font-mono">{filePath}</code>
               </div>
               <FileReadView content={fileContent} path={filePath} />
             </div>
@@ -876,9 +783,9 @@ function ToolCallAccordion({
           {/* File write view */}
           {isWrite && fileContent && (
             <div>
-              <div style={viewHeaderStyle}>
+              <div className="text-text-muted mb-1 text-[10px] uppercase font-semibold flex items-center gap-1.5">
                 <span>✏️ Write</span>
-                <code style={filePathStyle}>{filePath}</code>
+                <code className="text-[11px] text-text-primary font-mono">{filePath}</code>
               </div>
               <FileWriteView content={fileContent} path={filePath} />
             </div>
@@ -887,9 +794,9 @@ function ToolCallAccordion({
           {/* File edit view */}
           {isEdit && fileContent && beforeContent && (
             <div>
-              <div style={viewHeaderStyle}>
+              <div className="text-text-muted mb-1 text-[10px] uppercase font-semibold flex items-center gap-1.5">
                 <span>🔄 Diff</span>
-                <code style={filePathStyle}>{filePath}</code>
+                <code className="text-[11px] text-text-primary font-mono">{filePath}</code>
               </div>
               <FileEditView
                 beforeContent={beforeContent}
@@ -913,9 +820,9 @@ function ToolCallAccordion({
           {!isTerminal && !isRead && !isWrite && !isEdit && !isWebFetch && !isWebSearch &&
             tool.rawInput &&
             Object.keys(tool.rawInput).length > 0 && (
-              <div style={{ marginBottom: 6 }}>
-                <div style={outputLabelStyle}>Parameters</div>
-                <pre style={preStyle}>
+              <div className="mb-1.5">
+                <div className="text-text-muted mb-0.5 text-[10px] uppercase font-semibold">Parameters</div>
+                <pre className="m-0 whitespace-pre-wrap break-all text-text-secondary bg-surface-elevated p-1.5 rounded text-[11px]">
                   {JSON.stringify(tool.rawInput, null, 2)}
                 </pre>
               </div>
@@ -923,8 +830,8 @@ function ToolCallAccordion({
           {!isTerminal && !isRead && !isWrite && !isEdit && !isWebFetch && !isWebSearch &&
             tool.rawOutput && (
               <div>
-                <div style={outputLabelStyle}>Output</div>
-                <pre style={preStyle}>
+                <div className="text-text-muted mb-0.5 text-[10px] uppercase font-semibold">Output</div>
+                <pre className="m-0 whitespace-pre-wrap break-all text-text-secondary bg-surface-elevated p-1.5 rounded text-[11px]">
                   {tool.rawOutput.output ??
                     JSON.stringify(tool.rawOutput, null, 2)}
                 </pre>
@@ -950,54 +857,25 @@ function PlansBlock({ group }: { group: any[] }) {
   if (deduped.length === 0) return null;
 
   return (
-    <div
-      style={{
-        maxWidth: "85%",
-        fontSize: 12,
-        borderRadius: 6,
-        border: "1px solid var(--border)",
-        padding: 8,
-        background: "var(--bg-secondary)",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: "var(--text-muted)",
-          marginBottom: 4,
-        }}
-      >
+    <div className="max-w-[85%] text-xs rounded-md border border-border p-2 bg-surface">
+      <div className="text-[11px] font-semibold text-text-secondary mb-1">
         Tasks ({deduped.length})
       </div>
       {deduped.map((item: any, i: number) => (
         <div
           key={i}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "2px 4px",
-            color:
-              item.status === "completed"
-                ? "var(--text-muted)"
-                : "var(--text-accent)",
-          }}
+          className={`flex items-center gap-1.5 py-0.5 text-xs ${
+            item.status === "completed" ? "text-text-secondary" : "text-text-primary"
+          }`}
         >
-          <span style={{ fontSize: 10 }}>
+          <span className="text-[10px]">
             {item.status === "completed"
               ? "✅"
               : item.status === "in_progress"
                 ? "🔄"
                 : "⬜"}
           </span>
-          <span
-            style={
-              item.status === "completed"
-                ? { textDecoration: "line-through", opacity: 0.5 }
-                : {}
-            }
-          >
+          <span className={item.status === "completed" ? "line-through opacity-50" : ""}>
             {item.content || item.title || item.description}
           </span>
         </div>
@@ -1006,140 +884,4 @@ function PlansBlock({ group }: { group: any[] }) {
   );
 }
 
-// ─── Inline view styles ──────────────────────────────────────────────────────
 
-const viewHeaderStyle: React.CSSProperties = {
-  color: "var(--text-muted)",
-  marginBottom: 4,
-  fontSize: 10,
-  textTransform: "uppercase",
-  fontWeight: 600,
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-};
-
-const filePathStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "var(--text-accent)",
-  fontFamily: "var(--mono)",
-};
-
-const outputLabelStyle: React.CSSProperties = {
-  color: "var(--text-muted)",
-  marginBottom: 2,
-  fontSize: 10,
-  textTransform: "uppercase",
-  fontWeight: 600,
-};
-
-const preStyle: React.CSSProperties = {
-  margin: 0,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-all",
-  color: "var(--text-secondary)",
-  background: "var(--bg-tertiary)",
-  padding: 6,
-  borderRadius: 4,
-  fontSize: 11,
-};
-
-// ─── Colors + styles ─────────────────────────────────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  root: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    minWidth: 0,
-    background: "var(--color-background)",
-    color: "var(--color-text-primary)",
-    fontFamily:
-      "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    fontSize: 13,
-    overflow: "hidden",
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "6px 12px",
-    borderBottom: "1px solid var(--color-border)",
-    background: "var(--color-surface)",
-    flexShrink: 0,
-  },
-  stopBtn: {
-    background: "var(--color-destructive)",
-    color: "white",
-    border: "none",
-    borderRadius: 4,
-    padding: "2px 8px",
-    fontSize: 11,
-    cursor: "pointer",
-    fontWeight: 600,
-  },
-  closeBtn: {
-    background: "transparent",
-    border: "none",
-    color: "var(--color-text-secondary)",
-    cursor: "pointer",
-    fontSize: 16,
-    padding: "2px 4px",
-  },
-  connectionBar: {
-    padding: "4px 12px",
-    background: "rgba(248, 113, 113, 0.1)",
-    borderBottom: "1px solid var(--color-border)",
-    fontSize: 12,
-    color: "var(--color-destructive)",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
-  },
-  permissionBar: {
-    padding: "8px 12px",
-    background: "rgba(250, 204, 21, 0.1)",
-    borderBottom: "1px solid var(--color-border)",
-    flexShrink: 0,
-  },
-  messages: {
-    flex: 1,
-    overflowY: "auto",
-    padding: 12,
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-  emptyState: {
-    textAlign: "center",
-    color: "var(--color-text-secondary)",
-    fontSize: 13,
-    marginTop: 40,
-  },
-  inputBar: {
-    padding: "8px 12px",
-    borderTop: "1px solid var(--color-border)",
-    display: "flex",
-    gap: 8,
-    flexShrink: 0,
-  },
-  input: {
-    flex: 1,
-    padding: "6px 10px",
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: 6,
-    color: "var(--color-text-primary)",
-    fontSize: 13,
-    outline: "none",
-  },
-};
-
-if (typeof document !== "undefined") {
-  const root = document.documentElement;
-  root.style.setProperty(
-    "--mono",
-    "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-  );
-}

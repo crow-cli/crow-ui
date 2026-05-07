@@ -144,6 +144,11 @@ export default function App() {
   const openFilesRef = useRef(openFiles);
   const workspaceRootRef = useRef(workspaceRoot);
   const savingRef = useRef(saving);
+  const agentConfigRef = useRef(agentConfig);
+
+  useEffect(() => {
+    agentConfigRef.current = agentConfig;
+  }, [agentConfig]);
 
   useEffect(() => {
     activeFileRef.current = activeFile;
@@ -256,7 +261,7 @@ export default function App() {
                 type: "tab",
                 name: "Agent Chat",
                 component: "chat",
-                config: { workspaceRoot: "" },
+                config: { sessionId: "chat-initial" },
               },
             ],
           },
@@ -269,15 +274,7 @@ export default function App() {
     setModelJson(initialModel);
   }, [connected]);
 
-  // Initialize ACP store when connected and workspace is open
-  useEffect(() => {
-    if (!connected || !workspaceRoot) return;
-    try {
-      acpStore.initialize(agentConfig, workspaceRoot);
-    } catch (e) {
-      // Already initialized
-    }
-  }, [connected, workspaceRoot, agentConfig]);
+  // Sessions are created per-chat-tab by ChatPane itself
 
   // Set up global open functions for non-React code
   useEffect(() => {
@@ -336,16 +333,25 @@ export default function App() {
       if (!layoutModelRef.current) return;
       const model = layoutModelRef.current;
       const chatId = `chat-${Date.now()}`;
+      const sessionId = `session-${Date.now()}`;
+      if (workspaceRootRef.current) {
+        acpStore.createSession(sessionId, agentConfigRef.current, workspaceRootRef.current);
+      }
+      let targetId = "chat-tabset";
+      // If chat-tabset was removed (empty tabset auto-deleted), fallback to explorer-tabset
+      if (!model.getNodeById(targetId)) {
+        targetId = "explorer-tabset";
+      }
       model.doAction(
         Actions.addTab(
           {
             type: "tab",
             name: "Agent Chat",
             component: "chat",
-            config: { workspaceRoot: workspaceRoot || "" },
+            config: { sessionId },
             id: chatId,
           },
-          "chat-tabset",
+          targetId,
           DockLocation.CENTER,
           -1,
           true,
@@ -816,9 +822,15 @@ export default function App() {
         );
       }
       case "chat": {
+        const config = node.getConfig() || {};
+        const sessionId = config.sessionId || "chat-default";
         return (
           <ChatPane
+            sessionId={sessionId}
+            agentConfig={agentConfig}
+            workspaceRoot={workspaceRoot}
             onClose={() => {
+              acpStore.closeSession(sessionId);
               if (layoutModelRef.current) {
                 layoutModelRef.current.doAction(
                   Actions.deleteTab(node.getId()),
