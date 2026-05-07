@@ -1,0 +1,993 @@
+import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
+import {
+  Layout,
+  Model,
+  type IJsonModel,
+  TabNode,
+  type Node,
+  Actions,
+  DockLocation,
+  type ITabRenderValues,
+  type DropInfo,
+} from "flexlayout-react";
+import {
+  Terminal,
+  Sparkles,
+  FolderOpen,
+  FileCode2,
+  FileJson,
+  Settings,
+  Activity,
+} from "lucide-react";
+import { disposeModel, getModelContent, setModelContent } from "./components/EditorPane";
+import EditorPane from "./components/EditorPane";
+import ExplorerPane from "./components/ExplorerPane";
+import TerminalPane from "./components/TerminalPane";
+import ChatPane from "./components/ChatPane";
+import RpcLogPanel from "./components/RpcLogPanel";
+import SettingsPane from "./components/SettingsPane";
+import { FolderPicker } from "./components/FolderPicker";
+import BottomBar, { type ActivityId } from "./components/BottomBar";
+import { MenuBar, type MenuGroup } from "./components/MenuBar";
+import * as settings from "./lib/settings";
+import { ws } from "./lib/ws-client";
+import { setGlobalOpenFile, setGlobalOpenTerminal, setGlobalOpenChat, globalOpenFile, globalOpenTerminal, globalOpenChat } from "./lib/workspace-context";
+import type { AgentConfig } from "./lib/acp-client";
+import * as acpStore from "./lib/acp-store";
+
+/** Default fallback if config file fails to load */
+const FALLBACK_AGENT_CONFIG: AgentConfig = {
+  name: "crow-cli",
+  command: "crow-cli",
+  args: ["acp"],
+  env: [],
+};
+
+interface OpenFile {
+  path: string;
+  language: string;
+}
+
+// ── Tab Icons ───────────────────────────────────────────────────────────────
+function getTabIcon(name: string): ReactNode {
+  if (name === "Explorer")
+    return <FolderOpen className="w-3.5 h-3.5 text-violet-500" />;
+  if (name === "Agent Chat" || name.startsWith("Chat"))
+    return <Sparkles className="w-3.5 h-3.5 text-violet-500" />;
+  if (name === "Terminal" || name.startsWith("Terminal"))
+    return <Terminal className="w-3.5 h-3.5 text-zinc-400" />;
+  if (name === "Settings")
+    return <Settings className="w-3.5 h-3.5 text-zinc-400" />;
+  if (name === "ACP Log")
+    return <Activity className="w-3.5 h-3.5 text-zinc-400" />;
+  if (
+    name.endsWith(".rs") ||
+    name.endsWith(".ts") ||
+    name.endsWith(".tsx") ||
+    name.endsWith(".js") ||
+    name.endsWith(".jsx") ||
+    name.endsWith(".py") ||
+    name.endsWith(".go")
+  )
+    return <FileCode2 className="w-3.5 h-3.5 text-violet-500" />;
+  if (name.endsWith(".toml") || name.endsWith(".json") || name.endsWith(".yaml") || name.endsWith(".yml"))
+    return <FileJson className="w-3.5 h-3.5 text-zinc-500" />;
+  return null;
+}
+
+// ── Drop Rules ──────────────────────────────────────────────────────────────
+const onAllowDrop = (dragNode: Node, dropInfo: DropInfo) => {
+  const dropNode = dropInfo.node;
+  // Prevent non-border tabs dropping into borders
+  if (
+    dropNode.getType() === "border" &&
+    (dragNode.getParent() == null || dragNode.getParent()!.getType() !== "border")
+  )
+    return false;
+  // Prevent border tabs dropping into main layout
+  if (
+    dropNode.getType() !== "border" &&
+    dragNode.getParent() != null &&
+    dragNode.getParent()!.getType() === "border"
+  )
+    return false;
+  return true;
+};
+
+export default function App() {
+  const [connected, setConnected] = useState(false);
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [openFiles, setOpenFiles] = useState<Map<string, OpenFile>>(new Map());
+  const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set());
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [activeActivity, setActiveActivity] = useState<ActivityId>("explorer");
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [_menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [cursorLine, setCursorLine] = useState(1);
+  const [cursorCol, setCursorCol] = useState(1);
+  const [wordWrap, setWordWrap] = useState(
+    settings.getSettings().editor.wordWrap === "on"
+  );
+  const [agentConfig, setAgentConfig] = useState<AgentConfig>(FALLBACK_AGENT_CONFIG);
+
+  // FlexLayout model ref
+  const layoutModelRef = useRef<Model | null>(null);
+  const [modelJson, setModelJson] = useState<IJsonModel | null>(null);
+
+  // Panel visibility for BottomBar toggles
+  const [terminalVisible, setTerminalVisible] = useState(true);
+  const [chatVisible, setChatVisible] = useState(true);
+
+  // Load agent config from JSON file
+  useEffect(() => {
+    fetch("/agent-config.json")
+      .then(r => r.json())
+      .then(setAgentConfig)
+      .catch(() => {});
+  }, []);
+
+  // Load global IDE settings at startup
+  useEffect(() => {
+    settings.loadSettings().then(() => {
+      setWordWrap(settings.getSettings().editor.wordWrap === "on");
+    });
+    // Subscribe so word wrap updates when settings change
+    return settings.subscribe(() => {
+      setWordWrap(settings.getSettings().editor.wordWrap === "on");
+    });
+  }, []);
+
+  const activeFileRef = useRef(activeFile);
+  const dirtyFilesRef = useRef(dirtyFiles);
+  const openFilesRef = useRef(openFiles);
+  const workspaceRootRef = useRef(workspaceRoot);
+  const savingRef = useRef(saving);
+
+  useEffect(() => {
+    activeFileRef.current = activeFile;
+  }, [activeFile]);
+  useEffect(() => {
+    dirtyFilesRef.current = dirtyFiles;
+  }, [dirtyFiles]);
+  useEffect(() => {
+    openFilesRef.current = openFiles;
+  }, [openFiles]);
+  useEffect(() => {
+    workspaceRootRef.current = workspaceRoot;
+  }, [workspaceRoot]);
+  useEffect(() => {
+    savingRef.current = saving;
+  }, [saving]);
+
+  // Connect WebSocket on mount
+  useEffect(() => {
+    ws.connect()
+      .then(() => setConnected(true))
+      .catch(console.error);
+    return () => ws.disconnect();
+  }, []);
+
+  // Load settings after connection
+  useEffect(() => {
+    if (!connected) return;
+    settings.loadSettings().then(() => {
+      setWordWrap(settings.getSettings().editor.wordWrap === "on");
+    });
+    return settings.subscribe(() => {
+      setWordWrap(settings.getSettings().editor.wordWrap === "on");
+    });
+  }, [connected]);
+
+  // Initialize FlexLayout model
+  useEffect(() => {
+    if (!connected) return;
+    const initialModel: IJsonModel = {
+      global: {
+        tabEnableClose: true,
+        tabEnableRename: false,
+        tabSetEnableMaximize: false,
+        tabSetEnableSingleTabStretch: false,
+      },
+      borders: [],
+      layout: {
+        type: "row",
+        weight: 100,
+        children: [
+          // Explorer panel (left)
+          {
+            type: "tabset",
+            id: "explorer-tabset",
+            weight: 20,
+            selected: 0,
+            enableTabStrip: false,
+            children: [
+              {
+                type: "tab",
+                id: "explorer-tab",
+                name: "Explorer",
+                component: "explorer",
+              },
+            ],
+          },
+          // Center stack: Editor (top) + Terminal (bottom)
+          {
+            type: "row",
+            weight: 55,
+            children: [
+              {
+                type: "tabset",
+                id: "editor-tabset",
+                weight: 70,
+                selected: 0,
+                children: [
+                  {
+                    type: "tab",
+                    name: "Welcome",
+                    component: "welcome",
+                  },
+                ],
+              },
+              {
+                type: "tabset",
+                id: "terminal-tabset",
+                weight: 30,
+                selected: 0,
+                children: [
+                  {
+                    type: "tab",
+                    name: "Terminal",
+                    component: "terminal",
+                    config: { terminalId: "default" },
+                  },
+                ],
+              },
+            ],
+          },
+          // Chat panel (right)
+          {
+            type: "tabset",
+            id: "chat-tabset",
+            weight: 25,
+            selected: 0,
+            children: [
+              {
+                type: "tab",
+                name: "Agent Chat",
+                component: "chat",
+                config: { workspaceRoot: "" },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const model = Model.fromJson(initialModel);
+    model.setOnAllowDrop(onAllowDrop);
+    layoutModelRef.current = model;
+    setModelJson(initialModel);
+  }, [connected]);
+
+  // Initialize ACP store when connected and workspace is open
+  useEffect(() => {
+    if (!connected || !workspaceRoot) return;
+    try {
+      acpStore.initialize(agentConfig, workspaceRoot);
+    } catch (e) {
+      // Already initialized
+    }
+  }, [connected, workspaceRoot, agentConfig]);
+
+  // Set up global open functions for non-React code
+  useEffect(() => {
+    if (!connected) return;
+
+    setGlobalOpenFile(async (path: string) => {
+      const language = getLanguage(path);
+      setModelJson((prev) => {
+        if (!prev || !layoutModelRef.current) return prev;
+        const model = layoutModelRef.current;
+        const node = model.getNodeById(`file-${path}`);
+        if (node) {
+          model.doAction(Actions.selectTab(node.getId()));
+          return prev;
+        }
+        model.doAction(
+          Actions.addTab(
+            {
+              type: "tab",
+              name: path.split("/").pop() || path,
+              component: "editor",
+              config: { path, language },
+              id: `file-${path}`,
+            },
+            "editor-tabset",
+            DockLocation.CENTER,
+            -1,
+          ),
+        );
+        return prev;
+      });
+      setActiveFile(path);
+    });
+
+    setGlobalOpenTerminal(() => {
+      if (!layoutModelRef.current) return;
+      const model = layoutModelRef.current;
+      const termId = `term-${Date.now()}`;
+      model.doAction(
+        Actions.addTab(
+          {
+            type: "tab",
+            name: `Terminal ${termId.slice(-4)}`,
+            component: "terminal",
+            config: { terminalId: termId },
+            id: termId,
+          },
+          "terminal-tabset",
+          DockLocation.CENTER,
+          -1,
+        ),
+      );
+    });
+
+    setGlobalOpenChat(() => {
+      if (!layoutModelRef.current) return;
+      const model = layoutModelRef.current;
+      const chatId = `chat-${Date.now()}`;
+      model.doAction(
+        Actions.addTab(
+          {
+            type: "tab",
+            name: "Agent Chat",
+            component: "chat",
+            config: { workspaceRoot: workspaceRoot || "" },
+            id: chatId,
+          },
+          "chat-tabset",
+          DockLocation.CENTER,
+          -1,
+          true,
+        ),
+      );
+    });
+  }, [connected, workspaceRoot]);
+
+  // Save file
+  const saveFile = useCallback(
+    async (path: string) => {
+      if (savingRef.current) return;
+      setSaving(true);
+      try {
+        const content = getModelContent(path) ?? "";
+        await ws.invoke("document_set_content", { path, content });
+        await ws.invoke("document_save", { path });
+        setDirtyFiles((prev) => {
+          const next = new Set(prev);
+          next.delete(path);
+          return next;
+        });
+      } catch (e: any) {
+        console.error("Save failed:", e);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [],
+  );
+
+  // Close tab
+  const closeTab = useCallback((path: string) => {
+    disposeModel(path);
+    ws.invoke("document_close", { path }).catch(console.error);
+    setOpenFiles((prev) => {
+      const next = new Map(prev);
+      next.delete(path);
+      return next;
+    });
+    setDirtyFiles((prev) => {
+      const next = new Set(prev);
+      next.delete(path);
+      return next;
+    });
+    const remaining = Array.from(openFilesRef.current.keys()).filter(
+      (p) => p !== path,
+    );
+    if (activeFileRef.current === path) {
+      setActiveFile(
+        remaining.length > 0 ? remaining[remaining.length - 1] : null,
+      );
+    }
+  }, []);
+
+  // Global keyboard shortcuts (non-editor — editor handles its own via Monaco)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      if (ctrl && e.key === "o" && !e.shiftKey && !isInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowFolderPicker(true);
+        return;
+      }
+      if (ctrl && e.key === "s") {
+        // Always save active file, regardless of what has focus
+        // Let it fall through to Monaco if we don't have activeFile tracked
+        const af = activeFileRef.current;
+        if (af) {
+          e.preventDefault();
+          e.stopPropagation();
+          saveFile(af);
+          return;
+        }
+      }
+      if (ctrl && e.key === "b" && !isInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        setSidebarVisible((v) => !v);
+        return;
+      }
+      if (ctrl && e.key === "`" && !isInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        setTerminalVisible((v) => !v);
+        return;
+      }
+      if (ctrl && e.key === "l" && !isInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        setChatVisible((v) => !v);
+        return;
+      }
+      if (e.altKey && e.key === "z") {
+        e.preventDefault();
+        e.stopPropagation();
+        setWordWrap((v) => {
+          settings.updateSetting("editor", "wordWrap", !v ? "on" : "off");
+          return !v;
+        });
+        return;
+      }
+      if (ctrl && e.shiftKey && e.key === "R" && !isInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveActivity("rpc");
+        setSidebarVisible(true);
+        return;
+      }
+      if (e.key === "Escape") {
+        setMenuOpen(null);
+        setShowFolderPicker(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, []);
+
+  // Ambient glow follows mouse
+  useEffect(() => {
+    const glow = document.getElementById("ambient-glow");
+    let glowTimeout: ReturnType<typeof setTimeout>;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!glow) return;
+      glow.style.left = `${e.clientX}px`;
+      glow.style.top = `${e.clientY}px`;
+      glow.style.opacity = "1";
+      clearTimeout(glowTimeout);
+      glowTimeout = setTimeout(() => {
+        glow.style.opacity = "0";
+      }, 1000);
+    };
+    const handleMouseLeave = () => {
+      if (glow) glow.style.opacity = "0";
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseleave", handleMouseLeave);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseleave", handleMouseLeave);
+      clearTimeout(glowTimeout);
+    };
+  }, []);
+
+  // Listen for Monaco Ctrl+S custom event (save)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.path) saveFile(detail.path);
+    };
+    window.addEventListener("editor-save", handler);
+    return () => window.removeEventListener("editor-save", handler);
+  }, [saveFile]);
+
+  // Listen for Monaco Ctrl+W custom event (close tab)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.path) closeTab(detail.path);
+    };
+    window.addEventListener("editor-close-tab", handler);
+    return () => window.removeEventListener("editor-close-tab", handler);
+  }, [closeTab]);
+
+  const handleOpenFolder = async (path: string) => {
+    setShowFolderPicker(false);
+    try {
+      await ws.invoke<{ root: string }>("workspace_open", { path });
+      setWorkspaceRoot(path);
+      // Track in recently opened
+      await settings.addRecentlyOpened(path);
+      setActiveActivity("explorer");
+    } catch (e: any) {
+      console.error("Failed to open:", e);
+    }
+  };
+
+  const handleFileClick = async (path: string, isDir: boolean) => {
+    if (isDir) return;
+    await globalOpenFile(path);
+  };
+
+  const handleCursorChange = useCallback((line: number, col: number) => {
+    setCursorLine(line);
+    setCursorCol(col);
+  }, []);
+
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    const af = activeFileRef.current;
+    if (!af) return;
+    if (dirty) setDirtyFiles((prev) => new Set(prev).add(af));
+  }, []);
+
+  const handleMenuAction = useCallback(
+    (action: string) => {
+      switch (action) {
+        case "open_folder":
+          setShowFolderPicker(true);
+          break;
+        case "save": {
+          const af = activeFileRef.current;
+          if (af) saveFile(af);
+          break;
+        }
+        case "save_all": {
+          for (const path of dirtyFilesRef.current) saveFile(path);
+          break;
+        }
+        case "close_editor": {
+          const af = activeFileRef.current;
+          if (af) closeTab(af);
+          break;
+        }
+        case "toggle_sidebar":
+          setSidebarVisible((v) => !v);
+          break;
+        case "toggle_terminal":
+          setTerminalVisible((v) => !v);
+          break;
+        case "toggle_chat":
+          setChatVisible((v) => !v);
+          break;
+        case "word_wrap":
+          setWordWrap((v) => {
+            settings.updateSetting("editor", "wordWrap", !v ? "on" : "off");
+            return !v;
+          });
+          break;
+        case "explorer":
+          setActiveActivity("explorer");
+          setSidebarVisible(true);
+          break;
+        case "search":
+          setActiveActivity("search");
+          setSidebarVisible(true);
+          break;
+        case "source_control":
+          setActiveActivity("git");
+          setSidebarVisible(true);
+          break;
+        case "terminal":
+          globalOpenTerminal();
+          break;
+        case "new_terminal":
+          globalOpenTerminal();
+          break;
+        case "extensions":
+          setActiveActivity("extensions");
+          setSidebarVisible(true);
+          break;
+        case "chat":
+          globalOpenChat();
+          break;
+        case "rpc_log": {
+          setActiveActivity("rpc");
+          const model = layoutModelRef.current;
+          if (model) {
+            const node = model.getNodeById("rpc-tab");
+            if (node) {
+              model.doAction(Actions.selectTab("rpc-tab"));
+            } else {
+              model.doAction(
+                Actions.addTab(
+                  {
+                    type: "tab",
+                    id: "rpc-tab",
+                    name: "ACP Log",
+                    component: "rpc",
+                  },
+                  "explorer-tabset",
+                  DockLocation.CENTER,
+                  -1,
+                ),
+              );
+            }
+          }
+          break;
+        }
+        case "settings": {
+          setActiveActivity("settings");
+          const model = layoutModelRef.current;
+          if (model) {
+            const node = model.getNodeById("settings-tab");
+            if (node) {
+              model.doAction(Actions.selectTab("settings-tab"));
+            } else {
+              model.doAction(
+                Actions.addTab(
+                  {
+                    type: "tab",
+                    id: "settings-tab",
+                    name: "Settings",
+                    component: "settings",
+                  },
+                  "explorer-tabset",
+                  DockLocation.CENTER,
+                  -1,
+                ),
+              );
+            }
+          }
+          break;
+        }
+      }
+    },
+    [saveFile, closeTab],
+  );
+
+  const currentFile = activeFile ? openFiles.get(activeFile) : null;
+
+  const menuItems: MenuGroup[] = [
+    {
+      label: "File",
+      items: [
+        { label: "Open Directory…", action: "open_folder", shortcut: "Ctrl+O" },
+        { separator: true },
+        {
+          label: "Save",
+          action: "save",
+          shortcut: "Ctrl+S",
+          enabled: activeFile !== null,
+        },
+        {
+          label: "Save All",
+          action: "save_all",
+          shortcut: "Ctrl+Shift+S",
+          enabled: dirtyFiles.size > 0,
+        },
+        { separator: true },
+        {
+          label: "Close Editor",
+          action: "close_editor",
+          shortcut: "Ctrl+W",
+          enabled: activeFile !== null,
+        },
+      ],
+    },
+    {
+      label: "Edit",
+      items: [
+        { label: "Undo", action: "undo", shortcut: "Ctrl+Z" },
+        { label: "Redo", action: "redo", shortcut: "Ctrl+Shift+Z" },
+        { separator: true },
+        { label: "Cut", action: "cut", shortcut: "Ctrl+X" },
+        { label: "Copy", action: "copy", shortcut: "Ctrl+C" },
+        { label: "Paste", action: "paste", shortcut: "Ctrl+V" },
+      ],
+    },
+    {
+      label: "View",
+      items: [
+        { label: "Agent Chat", action: "chat", shortcut: "Ctrl+L" },
+        { label: "Explorer", action: "explorer", shortcut: "Ctrl+Shift+E" },
+        { label: "Search", action: "search", shortcut: "Ctrl+Shift+F" },
+        {
+          label: "Source Control",
+          action: "source_control",
+          shortcut: "Ctrl+Shift+G",
+        },
+        { label: "Terminal", action: "terminal", shortcut: "Ctrl+`" },
+        { label: "Extensions", action: "extensions", shortcut: "Ctrl+Shift+X" },
+        { label: "ACP Log", action: "rpc_log", shortcut: "Ctrl+Shift+R" },
+        { separator: true },
+        {
+          label: "Toggle Sidebar",
+          action: "toggle_sidebar",
+          shortcut: "Ctrl+B",
+        },
+        {
+          label: "Toggle Terminal",
+          action: "toggle_terminal",
+          shortcut: "Ctrl+`",
+        },
+        { separator: true },
+        {
+          label: wordWrap ? "Disable Word Wrap" : "Enable Word Wrap",
+          action: "word_wrap",
+          shortcut: "Alt+Z",
+        },
+      ],
+    },
+    {
+      label: "Go",
+      items: [
+        { label: "Back", action: "back", shortcut: "Alt+Left" },
+        { label: "Forward", action: "forward", shortcut: "Alt+Right" },
+        { separator: true },
+        { label: "Go to File…", action: "go_to_file", shortcut: "Ctrl+P" },
+        { label: "Go to Line…", action: "go_to_line", shortcut: "Ctrl+G" },
+      ],
+    },
+    {
+      label: "Run",
+      items: [
+        { label: "Start Debugging", action: "start_debug", shortcut: "F5" },
+        {
+          label: "Run Without Debugging",
+          action: "run_no_debug",
+          shortcut: "Ctrl+F5",
+        },
+        { label: "Stop", action: "stop_debug", shortcut: "Shift+F5" },
+      ],
+    },
+    {
+      label: "Terminal",
+      items: [
+        {
+          label: "New Terminal",
+          action: "new_terminal",
+          shortcut: "Ctrl+Shift+`",
+        },
+        {
+          label: "Split Terminal",
+          action: "split_terminal",
+          shortcut: "Ctrl+Shift+5",
+        },
+      ],
+    },
+    {
+      label: "Help",
+      items: [
+        { label: "Welcome", action: "welcome" },
+        { label: "Documentation", action: "docs" },
+        {
+          label: "Keyboard Shortcuts",
+          action: "shortcuts",
+          shortcut: "Ctrl+K Ctrl+S",
+        },
+      ],
+    },
+  ];
+
+  // ── FlexLayout factory ──────────────────────────────────────────────────
+
+  const layoutFactory = (node: TabNode) => {
+    const component = node.getComponent();
+
+    switch (component) {
+      case "editor": {
+        const config = node.getConfig();
+        const path = config?.path || "";
+        const language = config?.language || "plaintext";
+        return (
+          <EditorPane
+            key={path}
+            path={path}
+            language={language}
+            isActive={node.isSelected()}
+            wordWrap={wordWrap}
+            onCursorChange={handleCursorChange}
+            onDirtyChange={handleDirtyChange}
+          />
+        );
+      }
+      case "terminal": {
+        const config = node.getConfig();
+        const termId = config?.terminalId || "default";
+        return (
+          <TerminalPane
+            key={termId}
+            workspaceRoot={workspaceRoot || ""}
+            terminalId={termId}
+          />
+        );
+      }
+      case "chat": {
+        return (
+          <ChatPane
+            onClose={() => {
+              if (layoutModelRef.current) {
+                layoutModelRef.current.doAction(
+                  Actions.deleteTab(node.getId()),
+                );
+              }
+            }}
+            onFileChanged={(path, content) => {
+              if (path && content) {
+                try {
+                  setModelContent(path, content, getLanguage(path));
+                } catch {}
+              }
+            }}
+          />
+        );
+      }
+      case "explorer": {
+        if (!workspaceRoot) {
+          return (
+            <div className="flex flex-col items-center justify-center h-full gap-3 p-4">
+              <div className="text-text-secondary mb-2">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-40">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              </div>
+              <button
+                className="flex items-center gap-2 px-4 py-2 bg-hover hover:bg-hover/80 border border-border rounded-md cursor-pointer font-medium text-[13px] text-text-primary transition-colors"
+                onClick={() => setShowFolderPicker(true)}
+              >
+                Open Directory
+              </button>
+            </div>
+          );
+        }
+        return <ExplorerPane root={workspaceRoot} onFileClick={handleFileClick} />;
+      }
+      case "welcome": {
+        return (
+          <div className="flex flex-col items-center justify-center h-full gap-3 p-4">
+            <div className="text-text-secondary mb-2">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-40">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                <polyline points="13 2 13 9 20 9" />
+              </svg>
+            </div>
+            <div className="text-text-secondary text-sm">No file open</div>
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-hover hover:bg-hover/80 border border-border rounded-md cursor-pointer font-medium text-[13px] text-text-primary transition-colors"
+              onClick={() => setShowFolderPicker(true)}
+            >
+              Open Directory
+            </button>
+            <div className="text-[11px] text-text-secondary">
+              or press <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded text-[10px] font-mono">Ctrl+O</kbd>
+            </div>
+          </div>
+        );
+      }
+      case "rpc":
+        return <RpcLogPanel />;
+      case "settings":
+        return <SettingsPane />;
+      default:
+        return <div>Unknown component: {component}</div>;
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-surface text-text-primary text-[13px] overflow-hidden font-sans relative antialiased selection:bg-violet-500/30 selection:text-white">
+      {/* Ambient Glow */}
+      <div
+        id="ambient-glow"
+        className="fixed w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(139,92,246,0.12)_0%,rgba(0,0,0,0)_70%)] rounded-full pointer-events-none z-0 transition-opacity duration-300 opacity-0"
+        style={{ transform: "translate(-50%, -50%)" }}
+      />
+
+      <MenuBar
+        items={menuItems}
+        onAction={handleMenuAction}
+        onOpenChange={setMenuOpen}
+      />
+
+      <div className="flex-1 overflow-hidden p-2 z-10 relative">
+        {modelJson && layoutModelRef.current && (
+          <Layout
+            model={layoutModelRef.current}
+            factory={layoutFactory}
+            onRenderTab={(node: TabNode, renderValues: ITabRenderValues) => {
+              renderValues.leading = getTabIcon(node.getName());
+            }}
+          />
+        )}
+      </div>
+
+      <BottomBar
+        active={activeActivity}
+        onActivate={(id) => {
+          if (id === "explorer") {
+            setSidebarVisible((v) => !v);
+            setActiveActivity(id);
+          } else {
+            setActiveActivity(id);
+            setSidebarVisible(true);
+          }
+        }}
+        connected={connected}
+        saving={saving}
+        dirty={currentFile ? dirtyFiles.has(currentFile.path) : false}
+        language={currentFile?.language || "plaintext"}
+        line={cursorLine}
+        col={cursorCol}
+        encoding="UTF-8"
+        lineEnding="LF"
+        wordWrap={wordWrap}
+        workspaceName={workspaceRoot?.split("/").pop() || ""}
+        onToggleEditors={() => {}}
+        onToggleTerminals={() => setTerminalVisible((v) => !v)}
+        onToggleChats={() => setChatVisible((v) => !v)}
+        editorsMinimized={false}
+        terminalsMinimized={false}
+        chatsMinimized={false}
+        editorTileCount={0}
+        terminalTileCount={0}
+        chatTileCount={0}
+      />
+
+      <FolderPicker
+        open={showFolderPicker}
+        initialPath="/home/thomas"
+        onSelect={handleOpenFolder}
+        onClose={() => setShowFolderPicker(false)}
+      />
+    </div>
+  );
+}
+
+
+function getLanguage(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    rs: "rust",
+    ts: "typescript",
+    tsx: "typescriptreact",
+    js: "javascript",
+    jsx: "javascriptreact",
+    py: "python",
+    go: "go",
+    java: "java",
+    c: "c",
+    cpp: "cpp",
+    cs: "csharp",
+    css: "css",
+    html: "html",
+    json: "json",
+    md: "markdown",
+    yml: "yaml",
+    yaml: "yaml",
+    toml: "toml",
+    sh: "shell",
+  };
+  return map[ext] || "plaintext";
+}
+
+const kbdStyle: React.CSSProperties = {
+  padding: "2px 6px",
+  background: "var(--color-surface-elevated)",
+  border: "1px solid var(--color-border)",
+  borderRadius: 3,
+  fontSize: 11,
+  fontFamily: "monospace",
+  color: "var(--color-success)",
+};

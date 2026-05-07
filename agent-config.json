@@ -1,0 +1,8 @@
+{
+  "name": "crow-cli",
+  "command": "/home/thomas/.local/bin/crow-cli",
+  "args": [
+    "acp"
+  ],
+  "env": []
+}

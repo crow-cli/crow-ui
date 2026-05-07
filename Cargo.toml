@@ -1,0 +1,112 @@
+[workspace]
+resolver = "2"
+members = [
+  "backend/crates/murder-text",
+  "backend/crates/murder-workspace",
+  "backend/crates/murder-acp",
+  "backend/crates/murder-lsp",
+  "backend/crates/murder-syntax",
+  "backend/crates/murder-git",
+  "backend/crates/murder-terminal",
+  "backend/crates/murder-settings",
+  "backend/crates/murder-theme",
+  "backend/crates/murder-textmate",
+  "backend/crates/murder-db",
+  "backend/crates/murder-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+license = "MIT"
+repository = "https://github.com/murder-ide/murder-ide"
+
+[workspace.dependencies]
+# Internal crates
+murder-text = { path = "backend/crates/murder-text" }
+murder-workspace = { path = "backend/crates/murder-workspace" }
+murder-lsp = { path = "backend/crates/murder-lsp" }
+murder-syntax = { path = "backend/crates/murder-syntax" }
+murder-git = { path = "backend/crates/murder-git" }
+murder-terminal = { path = "backend/crates/murder-terminal" }
+murder-settings = { path = "backend/crates/murder-settings" }
+murder-theme = { path = "backend/crates/murder-theme" }
+murder-textmate = { path = "backend/crates/murder-textmate" }
+murder-db = { path = "backend/crates/murder-db" }
+murder-server = { path = "backend/crates/murder-server" }
+murder-acp = { path = "backend/crates/murder-acp" }
+
+# Core
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+
+# Web
+axum = { version = "0.7", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+tokio-tungstenite = "0.26"
+futures = "0.3"
+
+# Text
+ropey = "1"
+unicode-segmentation = "1"
+unicode-width = "0.2"
+regex = "1"
+memchr = "2"
+
+# Syntax & Language
+tree-sitter = "0.24"
+
+# File system
+notify = { version = "7", features = ["macos_fsevent"] }
+walkdir = "2"
+globset = "0.4"
+ignore = "0.4"
+
+# Terminal
+portable-pty = "0.8"
+vte = "0.13"
+
+# Git
+gix = { version = "0.68", default-features = false }
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+
+# HTTP
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+
+# Concurrency
+crossbeam = "0.8"
+dashmap = "6"
+rayon = "1"
+parking_lot = "0.12"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+correctness = { level = "deny", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
