@@ -102,8 +102,6 @@ export default function ChatPane({
     prevNotifLen.current = notifications.length;
   }, [notifications.length]);
 
-
-
   // Extract content from a tool call — checks content blocks, rawOutput, and rawInput
   function extractContentFromTool(tool: any): string | null {
     // Check rawOutput (crow-cli puts file content here for read tool)
@@ -149,11 +147,16 @@ export default function ChatPane({
           const title = tool.title || "";
           const titleLower = title.toLowerCase();
           // Infer kind from title prefix if not set
-          const effectiveKind = kind ||
-            (titleLower.startsWith("read:") ? "read" :
-             titleLower.startsWith("write:") || titleLower.startsWith("create:") ? "write" :
-             titleLower.startsWith("edit:") ? "edit" :
-             "");
+          const effectiveKind =
+            kind ||
+            (titleLower.startsWith("read:")
+              ? "read"
+              : titleLower.startsWith("write:") ||
+                  titleLower.startsWith("create:")
+                ? "write"
+                : titleLower.startsWith("edit:")
+                  ? "edit"
+                  : "");
           const status = tool.status || "";
           if (status !== "completed") continue;
           if (!["read", "write", "edit"].includes(effectiveKind)) continue;
@@ -174,13 +177,18 @@ export default function ChatPane({
               fetchFile(client, filePath, toolCallId, "read");
               continue;
             }
-            client.wsInvoke("read_file", { path: filePath })
+            client
+              .wsInvoke("read_file", { path: filePath })
               .then((result: any) => {
                 const afterContent = result.content as string;
                 cacheFile(filePath, afterContent); // update cache with post-edit content
                 setFetchedFiles((prev) => {
                   const next = new Map(prev);
-                  next.set(toolCallId, { path: filePath, content: afterContent, beforeContent });
+                  next.set(toolCallId, {
+                    path: filePath,
+                    content: afterContent,
+                    beforeContent,
+                  });
                   return next;
                 });
                 if (onFileChanged) onFileChanged(filePath, afterContent);
@@ -194,7 +202,10 @@ export default function ChatPane({
               cacheFile(filePath, embeddedContent);
               setFetchedFiles((prev) => {
                 const next = new Map(prev);
-                next.set(toolCallId, { path: filePath, content: embeddedContent });
+                next.set(toolCallId, {
+                  path: filePath,
+                  content: embeddedContent,
+                });
                 return next;
               });
               if (onFileChanged) onFileChanged(filePath, embeddedContent);
@@ -301,8 +312,6 @@ export default function ChatPane({
     }
   }, [pendingPermission, sessionId]);
 
-
-
   const isReady = connectionStatus === "ready";
   const isStreaming =
     isReady &&
@@ -312,18 +321,17 @@ export default function ChatPane({
         (n.data as any)?.update?.sessionUpdate === "agent_message_chunk",
     );
 
-  const statusLabel =
-    !workspaceRoot
-      ? "Waiting for workspace..."
-      : connectionStatus === "disconnected"
-        ? "Disconnected"
-        : connectionStatus === "connecting"
-          ? "Connecting..."
-          : connectionStatus === "initializing"
-            ? "Initializing..."
-            : connectionStatus === "creating_session"
-              ? "Creating session..."
-              : "Ready";
+  const statusLabel = !workspaceRoot
+    ? "Waiting for workspace..."
+    : connectionStatus === "disconnected"
+      ? "Disconnected"
+      : connectionStatus === "connecting"
+        ? "Connecting..."
+        : connectionStatus === "initializing"
+          ? "Initializing..."
+          : connectionStatus === "creating_session"
+            ? "Creating session..."
+            : "Ready";
 
   const messageGroups: GroupedNotifications = useMemo(() => {
     const sessionNotes = notifications.filter(
@@ -339,7 +347,10 @@ export default function ChatPane({
   }, [notifications]);
 
   return (
-    <div data-testid="chat-pane" className="relative flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans bg-transparent">
+    <div
+      data-testid="chat-pane"
+      className="relative flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans bg-transparent"
+    >
       <div className="dot-overlay" />
       <Header
         statusLabel={statusLabel}
@@ -351,7 +362,9 @@ export default function ChatPane({
         onCancel={handleCancel}
       />
 
-      {workspaceRoot && connectionStatus === "disconnected" && <ConnectionBar />}
+      {workspaceRoot && connectionStatus === "disconnected" && (
+        <ConnectionBar />
+      )}
 
       {pendingPermission && (
         <PermissionBar
@@ -361,7 +374,10 @@ export default function ChatPane({
         />
       )}
 
-      <div data-testid="chat-messages" className="chat-messages flex-1 overflow-y-auto p-2 flex flex-col gap-1.5 min-h-0">
+      <div
+        data-testid="chat-messages"
+        className="chat-messages flex-1 overflow-y-auto p-2 flex flex-col gap-1.5 min-h-0"
+      >
         {messageGroups.length === 0 && (
           <div className="text-center text-text-secondary text-sm mt-10">
             {statusLabel}
@@ -505,8 +521,6 @@ function PermissionBar({
     </div>
   );
 }
-
-
 
 function MessageGroup({
   group,
@@ -672,6 +686,7 @@ function ToolCallAccordion({
     terminalId = acpStore.getTerminalId(tool.toolCallId, sessionId);
   }
   const commandLabel = tool.title || kind;
+  const cwd = tool.rawInput?.cwd || acpStore.getSession(sessionId).cwd || undefined;
 
   // Extract web fetch info
   const rawOutput = tool.rawOutput;
@@ -700,15 +715,26 @@ function ToolCallAccordion({
 
   // Determine which view to render — fallback to title prefix if kind is missing
   const titleLower = title.toLowerCase();
-  const inferredKind = kind ||
-    (titleLower.startsWith("read:") ? "read" :
-     titleLower.startsWith("write:") || titleLower.startsWith("create:") ? "write" :
-     titleLower.startsWith("edit:") ? "edit" :
-     titleLower.startsWith("fetch:") ? "fetch" :
-     titleLower.startsWith("search:") ? "search" :
-     titleLower.startsWith("run:") || titleLower.startsWith("exec:") || titleLower.startsWith("terminal:") || titleLower.startsWith("command:") ? "execute" :
-     "");
-  const isTerminal = (inferredKind === "execute" || kind === "execute") && terminalId;
+  const inferredKind =
+    kind ||
+    (titleLower.startsWith("read:")
+      ? "read"
+      : titleLower.startsWith("write:") || titleLower.startsWith("create:")
+        ? "write"
+        : titleLower.startsWith("edit:")
+          ? "edit"
+          : titleLower.startsWith("fetch:")
+            ? "fetch"
+            : titleLower.startsWith("search:")
+              ? "search"
+              : titleLower.startsWith("run:") ||
+                  titleLower.startsWith("exec:") ||
+                  titleLower.startsWith("terminal:") ||
+                  titleLower.startsWith("command:")
+                ? "execute"
+                : "");
+  const isTerminal =
+    (inferredKind === "execute" || kind === "execute") && terminalId;
   const isRead = inferredKind === "read";
   const isWrite = inferredKind === "write" || inferredKind === "create";
   // Edit: either kind === "edit" OR has a Diff content block
@@ -716,14 +742,16 @@ function ToolCallAccordion({
   const isEdit = inferredKind === "edit" || hasDiffContent;
 
   return (
-    <div className={`text-xs rounded-md overflow-hidden bg-surface border ${borderColorClass}`}>
+    <div
+      className={`text-xs rounded-md overflow-hidden bg-surface border ${borderColorClass}`}
+    >
       <div
         onClick={() => setOpen(!open)}
         className="px-2.5 py-1 flex items-center gap-1.5 cursor-pointer select-none"
       >
         <span>{icon}</span>
         <code className="flex-1 text-[11px] font-mono text-text-primary truncate">
-          {title}
+          {isTerminal ? cwd || title : title}
         </code>
         <span className="text-[10px] text-text-secondary select-none">
           {open ? "▾" : "▸"}
@@ -736,7 +764,11 @@ function ToolCallAccordion({
             <InlineTerminal
               terminalId={terminalId}
               commandLabel={commandLabel}
-              cwd={tool.rawInput?.cwd || acpStore.getSession(sessionId).cwd || undefined}
+              cwd={
+                tool.rawInput?.cwd ||
+                acpStore.getSession(sessionId).cwd ||
+                undefined
+              }
               exited={status === "completed" || status === "failed"}
             />
           ) : null}
@@ -746,7 +778,9 @@ function ToolCallAccordion({
             <div>
               <div className="text-text-muted mb-1 text-[10px] uppercase font-semibold flex items-center gap-1.5">
                 <span>📄 Read</span>
-                <code className="text-[11px] text-text-primary font-mono">{filePath}</code>
+                <code className="text-[11px] text-text-primary font-mono">
+                  {filePath}
+                </code>
               </div>
               <FileReadView content={fileContent} path={filePath} />
             </div>
@@ -757,7 +791,9 @@ function ToolCallAccordion({
             <div>
               <div className="text-text-muted mb-1 text-[10px] uppercase font-semibold flex items-center gap-1.5">
                 <span>✏️ Write</span>
-                <code className="text-[11px] text-text-primary font-mono">{filePath}</code>
+                <code className="text-[11px] text-text-primary font-mono">
+                  {filePath}
+                </code>
               </div>
               <FileWriteView content={fileContent} path={filePath} />
             </div>
@@ -768,7 +804,9 @@ function ToolCallAccordion({
             <div>
               <div className="text-text-muted mb-1 text-[10px] uppercase font-semibold flex items-center gap-1.5">
                 <span>🔄 Diff</span>
-                <code className="text-[11px] text-text-primary font-mono">{filePath}</code>
+                <code className="text-[11px] text-text-primary font-mono">
+                  {filePath}
+                </code>
               </div>
               <FileEditView
                 beforeContent={beforeContent}
@@ -784,25 +822,41 @@ function ToolCallAccordion({
           )}
 
           {/* Web search view */}
-          {isWebSearch && Array.isArray(searchResults) && searchResults.length > 0 && (
-            <WebSearchView query={searchQuery} results={searchResults} />
-          )}
+          {isWebSearch &&
+            Array.isArray(searchResults) &&
+            searchResults.length > 0 && (
+              <WebSearchView query={searchQuery} results={searchResults} />
+            )}
 
           {/* Fallback: show rawInput / rawOutput */}
-          {!isTerminal && !isRead && !isWrite && !isEdit && !isWebFetch && !isWebSearch &&
+          {!isTerminal &&
+            !isRead &&
+            !isWrite &&
+            !isEdit &&
+            !isWebFetch &&
+            !isWebSearch &&
             tool.rawInput &&
             Object.keys(tool.rawInput).length > 0 && (
               <div className="mb-1.5">
-                <div className="text-text-muted mb-0.5 text-[10px] uppercase font-semibold">Parameters</div>
+                <div className="text-text-muted mb-0.5 text-[10px] uppercase font-semibold">
+                  Parameters
+                </div>
                 <pre className="m-0 whitespace-pre-wrap break-all text-text-secondary bg-surface-elevated p-1.5 rounded text-[11px]">
                   {JSON.stringify(tool.rawInput, null, 2)}
                 </pre>
               </div>
             )}
-          {!isTerminal && !isRead && !isWrite && !isEdit && !isWebFetch && !isWebSearch &&
+          {!isTerminal &&
+            !isRead &&
+            !isWrite &&
+            !isEdit &&
+            !isWebFetch &&
+            !isWebSearch &&
             tool.rawOutput && (
               <div>
-                <div className="text-text-muted mb-0.5 text-[10px] uppercase font-semibold">Output</div>
+                <div className="text-text-muted mb-0.5 text-[10px] uppercase font-semibold">
+                  Output
+                </div>
                 <pre className="m-0 whitespace-pre-wrap break-all text-text-secondary bg-surface-elevated p-1.5 rounded text-[11px]">
                   {tool.rawOutput.output ??
                     JSON.stringify(tool.rawOutput, null, 2)}
@@ -837,7 +891,9 @@ function PlansBlock({ group }: { group: any[] }) {
         <div
           key={i}
           className={`flex items-center gap-1.5 py-0.5 text-xs ${
-            item.status === "completed" ? "text-text-secondary" : "text-text-primary"
+            item.status === "completed"
+              ? "text-text-secondary"
+              : "text-text-primary"
           }`}
         >
           <span className="text-[10px]">
@@ -847,7 +903,11 @@ function PlansBlock({ group }: { group: any[] }) {
                 ? "🔄"
                 : "⬜"}
           </span>
-          <span className={item.status === "completed" ? "line-through opacity-50" : ""}>
+          <span
+            className={
+              item.status === "completed" ? "line-through opacity-50" : ""
+            }
+          >
             {item.content || item.title || item.description}
           </span>
         </div>
@@ -855,5 +915,3 @@ function PlansBlock({ group }: { group: any[] }) {
     </div>
   );
 }
-
-

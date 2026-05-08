@@ -52,7 +52,7 @@ export function FileReadView({ content, path, maxHeight = 300 }: FileReadViewPro
       scrollbar: { vertical: "auto", horizontal: "auto" },
       lineNumbers: "on",
       folding: true,
-      wordWrap: "off",
+      wordWrap: "on",
       automaticLayout: true,
       fontSize: 11,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -95,6 +95,7 @@ interface FileWriteViewProps {
 export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -111,7 +112,7 @@ export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewP
       scrollbar: { vertical: "auto", horizontal: "auto" },
       lineNumbers: "off",
       folding: false,
-      wordWrap: "off",
+      wordWrap: "on",
       automaticLayout: true,
       fontSize: 11,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -125,7 +126,7 @@ export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewP
 
     // Add green background decorations for all lines
     const lineCount = model.getLineCount();
-    const decorations = model.deltaDecorations([], [
+    model.deltaDecorations([], [
       {
         range: new monaco.Range(1, 1, lineCount, model.getLineMaxColumn(lineCount)),
         options: {
@@ -138,18 +139,32 @@ export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewP
 
     editorRef.current = editor;
 
+    // Measure visible content height after render
+    const timer = setTimeout(() => {
+      const domNode = editor.getDomNode();
+      if (!domNode) return;
+      const lines = domNode.querySelectorAll('.view-lines .view-line');
+      const lineHeight = 18;
+      const padding = 20;
+      const newHeight = Math.max(lines.length * lineHeight + padding, 60);
+      setMeasuredHeight(Math.min(newHeight, maxHeight));
+    }, 100);
+
     return () => {
+      clearTimeout(timer);
       editor.dispose();
       model.dispose();
     };
-  }, [content, path]);
+  }, [content, path, maxHeight]);
+
+  const defaultHeight = Math.min(content.split("\n").length * 18 + 16, maxHeight);
 
   return (
     <div
       ref={containerRef}
       className="rounded overflow-hidden border border-[var(--color-primary)]/25"
       style={{
-        height: Math.min(content.split("\n").length * 18 + 16, maxHeight),
+        height: measuredHeight ?? defaultHeight,
         minHeight: 60,
       }}
     />
@@ -168,6 +183,8 @@ interface FileEditViewProps {
 export function FileEditView({ beforeContent, afterContent, path, maxHeight = 400 }: FileEditViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
+  const [showFullDiff, setShowFullDiff] = useState(false);
+  const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -184,7 +201,7 @@ export function FileEditView({ beforeContent, afterContent, path, maxHeight = 40
       scrollbar: { vertical: "auto", horizontal: "auto" },
       lineNumbers: "on",
       folding: true,
-      wordWrap: "off",
+      wordWrap: "on",
       automaticLayout: true,
       fontSize: 11,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -192,7 +209,12 @@ export function FileEditView({ beforeContent, afterContent, path, maxHeight = 40
       contextmenu: false,
       renderSideBySide: true,
       diffAlgorithm: "legacy",
-      hideUnchangedRegions: { enabled: false },
+      hideUnchangedRegions: {
+        enabled: !showFullDiff,
+        contextLineCount: 3,
+        minimumLineCount: 5,
+        revealLineCount: 5,
+      },
     });
 
     diffEditor.setModel({
@@ -202,25 +224,51 @@ export function FileEditView({ beforeContent, afterContent, path, maxHeight = 40
 
     diffEditorRef.current = diffEditor;
 
+    // Measure visible content height after render
+    const timer = setTimeout(() => {
+      const modified = diffEditor.getModifiedEditor();
+      const domNode = modified.getDomNode();
+      if (!domNode) return;
+      const lines = domNode.querySelectorAll('.view-lines .view-line');
+      const lineHeight = 18;
+      const padding = 20;
+      const newHeight = Math.max(lines.length * lineHeight + padding, 80);
+      setMeasuredHeight(Math.min(newHeight, maxHeight));
+    }, 100);
+
     return () => {
+      clearTimeout(timer);
       diffEditor.dispose();
       originalModel.dispose();
       modifiedModel.dispose();
     };
-  }, [beforeContent, afterContent, path]);
+  }, [beforeContent, afterContent, path, showFullDiff, maxHeight]);
+
+  const defaultHeight = Math.min(
+    Math.max(beforeContent.split("\n").length, afterContent.split("\n").length) * 18 + 16,
+    maxHeight,
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className="rounded overflow-hidden border border-[var(--color-border)]"
-      style={{
-        height: Math.min(
-          Math.max(beforeContent.split("\n").length, afterContent.split("\n").length) * 18 + 16,
-          maxHeight,
-        ),
-        minHeight: 80,
-      }}
-    />
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-text-secondary font-mono">{path}</span>
+        <button
+          onClick={() => setShowFullDiff((v) => !v)}
+          className="text-[10px] text-text-secondary hover:text-text-primary bg-transparent border border-border rounded px-1.5 py-0.5 cursor-pointer"
+        >
+          {showFullDiff ? "Collapse" : "Expand"}
+        </button>
+      </div>
+      <div
+        ref={containerRef}
+        className="rounded overflow-hidden border border-[var(--color-border)]"
+        style={{
+          height: measuredHeight ?? defaultHeight,
+          minHeight: 80,
+        }}
+      />
+    </div>
   );
 }
 

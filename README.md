@@ -46,3 +46,31 @@ Agent Config
 Currently points to /home/thomas/.local/bin/crow-cli acp — that's the AI agent the IDE talks to.
 
 Pretty solid setup. It's essentially a lightweight VS Code alternative built specifically around AI agent workflows, with FlexLayout for the panel system and ACP for agent integration.
+
+
+
+
+"crow-mcp-vision": {
+    /// The command which runs the MCP server
+    "command": "uv",
+    /// The arguments to pass to the MCP server
+    "args": ["--project","/home/thomas/src/crow-cli/crow-vision-mcp","run","/home/thomas/src/crow-cli/crow-vision-mcp/main.py"],
+    /// The environment variables to set
+    "env": {}
+  }
+
+
+
+{
+  /// Configure an MCP server that runs locally via stdin/stdout
+  ///
+  /// The name of your MCP server
+  "playwright-mcp": {
+    /// The command which runs the MCP server
+    "command": "npx",
+    /// The arguments to pass to the MCP server
+    "args": ["@playwright/mcp@0.0.69"],
+    /// The environment variables to set
+    "env": {}
+  }
+}

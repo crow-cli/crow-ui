@@ -109,3 +109,10 @@ For your IDE specifically:
 Given your existing #1e1640 editor background and violet accent theme, a subtle dot grid or line grid at ~6-8% violet/white opacity on the main workspace surface would add that engineered depth without being distracting. The masked/faded-edge approach would work especially well on the main content area behind the FlexLayout panels.
 
 There's also a tool and for copy-pasting Tailwind/CSS snippets. And since you're already on shadcn + Tailwind, the would drop in pretty cleanly.
+
+
+# TERMINAL TODO
+- map all proper keyboard commands to xterm.js so it is exactly like using a native terminal inside application. same exact commands as native linux terminal
+
+# CROW-CLI / AGENT TOOLS TODO
+- images in tool responses (from browser_take_screenshot, read_image_file, capture_webcam) are not showing up in chat — need to render returned images inline in the agent conversation view

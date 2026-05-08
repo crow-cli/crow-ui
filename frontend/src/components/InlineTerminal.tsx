@@ -105,10 +105,6 @@ export default function InlineTerminal({
     fitAddonRef.current = fitAddon;
     initializedRef.current = true;
 
-    // Write the command label
-    // terminal.writeln(`\x1b[1;33m$ ${commandLabel}\x1b[0m`);
-    // terminal.writeln("");
-
     // Always fetch current output on mount. For completed terminals this gets
     // everything. For running terminals this gets a snapshot, and incremental
     // updates arrive via polling below.
@@ -246,22 +242,36 @@ export default function InlineTerminal({
     return () => observer.disconnect();
   }, []);
 
-  const displayLabel = cwd || commandLabel;
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(commandLabel).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
     <div className="rounded-md border border-[var(--color-border)] overflow-hidden bg-[var(--color-background-deeper)] text-xs">
-      <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-background-dark)]">
-        <span className="text-[11px] font-mono text-[var(--color-foreground)] whitespace-nowrap overflow-hidden text-ellipsis max-w-[80%]">
+      <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-background-dark)] gap-2">
+        <span className="text-[11px] font-mono text-[var(--color-foreground)] break-all">
           <span className="text-[var(--color-primary)] font-bold">$</span>{" "}
-          <span className="opacity-60">{displayLabel}</span>
+          <span className="opacity-60">{commandLabel}</span>
         </span>
-        {status === "exited" && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-[var(--color-primary-faint)] text-[var(--color-primary)] font-semibold flex-shrink-0">
-            {initialExitCode === 0 || exitCodeRef.current === 0
-              ? "✓ exited 0"
-              : `✗ exited ${initialExitCode ?? exitCodeRef.current ?? "?"}`}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={handleCopy}
+            title="Copy command"
+            className="p-0.5 rounded text-[10px] text-text-secondary hover:text-text-primary hover:bg-white/5 cursor-pointer border-none bg-transparent"
+          >
+            {copied ? "✓" : "⧉"}
+          </button>
+          {status === "exited" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-[var(--color-primary-faint)] text-[var(--color-primary)] font-semibold">
+              {initialExitCode === 0 || exitCodeRef.current === 0
+                ? "✓ exited 0"
+                : `✗ exited ${initialExitCode ?? exitCodeRef.current ?? "?"}`}
+            </span>
+          )}
+        </div>
       </div>
       <div ref={containerRef} className="h-48 min-h-[120px] overflow-hidden" />
     </div>
