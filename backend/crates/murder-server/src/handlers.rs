@@ -649,10 +649,18 @@ pub async fn handle_acp_terminal_output(state: &AppState, params: &Value) -> Res
         .await
         .ok_or_else(|| format!("Terminal not found: {terminal_id}"))?;
 
+    let cwd = state.agents.terminals
+        .terminal_cwd(terminal_id)
+        .await;
+
     let mut result = json!({
         "output": output,
         "truncated": truncated,
     });
+
+    if let Some(cwd) = cwd {
+        result["cwd"] = json!(cwd);
+    }
 
     if exited {
         let mut status = serde_json::Map::new();

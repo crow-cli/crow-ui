@@ -290,6 +290,13 @@ impl AcpTerminalManager {
         Some((t.exited, t.exit_code, t.exit_signal.clone()))
     }
 
+    pub async fn terminal_cwd(&self, id: &str) -> Option<String> {
+        let terminals = self.inner.terminals.lock().await;
+        let term = terminals.get(id)?;
+        let t = term.lock().await;
+        t.cwd.clone()
+    }
+
     pub async fn kill_terminal(&self, id: &str) -> bool {
         let terminals = self.inner.terminals.lock().await;
         if let Some(term) = terminals.get(id) {

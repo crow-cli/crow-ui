@@ -361,7 +361,7 @@ export default function ChatPane({
         />
       )}
 
-      <div data-testid="chat-messages" className="chat-messages flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
+      <div data-testid="chat-messages" className="chat-messages flex-1 overflow-y-auto p-2 flex flex-col gap-1.5 min-h-0">
         {messageGroups.length === 0 && (
           <div className="text-center text-text-secondary text-sm mt-10">
             {statusLabel}
@@ -532,8 +532,14 @@ function MessageGroup({
     if (!text) return null;
     return (
       <div className="flex justify-end">
-        <div className="ml-auto max-w-[70%] px-3 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl rounded-br-sm text-[13px] leading-relaxed whitespace-pre-wrap break-words text-text-primary backdrop-blur-sm shadow-[0_0_12px_rgba(139,92,246,0.08)]">
-          {text}
+        <div className="ml-auto max-w-[80%] px-3 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl rounded-br-sm text-[13px] leading-relaxed text-text-primary backdrop-blur-sm shadow-[0_0_12px_rgba(139,92,246,0.08)]">
+          <Streamdown
+            plugins={{ mermaid, math }}
+            isAnimating={false}
+            components={{ code: MarkdownCode }}
+          >
+            {text}
+          </Streamdown>
         </div>
       </div>
     );
@@ -543,7 +549,7 @@ function MessageGroup({
     const text = extractGroupText(group);
     if (!text) return null;
     return (
-      <div className="w-full px-4 py-3 text-[13px] leading-relaxed text-text-primary">
+      <div className="w-full px-3 py-2 text-[13px] leading-relaxed text-text-primary">
         <Streamdown
           plugins={{ mermaid, math }}
           isAnimating={isStreaming}
@@ -730,6 +736,7 @@ function ToolCallAccordion({
             <InlineTerminal
               terminalId={terminalId}
               commandLabel={commandLabel}
+              cwd={tool.rawInput?.cwd || acpStore.getSession(sessionId).cwd || undefined}
               exited={status === "completed" || status === "failed"}
             />
           ) : null}

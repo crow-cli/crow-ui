@@ -15,8 +15,10 @@ import "xterm/css/xterm.css";
 interface InlineTerminalProps {
   /** ACP terminal ID returned from createTerminal */
   terminalId: string;
-  /** Command label to display */
+  /** Command label to display (fallback if no cwd) */
   commandLabel: string;
+  /** Working directory to display (overrides fetched cwd) */
+  cwd?: string;
   /** Whether the terminal has exited */
   exited?: boolean;
   /** Exit code if exited */
@@ -51,6 +53,7 @@ const TERMINAL_THEME = {
 export default function InlineTerminal({
   terminalId,
   commandLabel,
+  cwd: initialCwd,
   exited: initialExited,
   exitCode: initialExitCode,
 }: InlineTerminalProps) {
@@ -61,12 +64,15 @@ export default function InlineTerminal({
   const [status, setStatus] = useState<"running" | "exited">(
     initialExited ? "exited" : "running",
   );
+  const [cwd, setCwd] = useState<string | undefined>(initialCwd);
   const exitCodeRef = useRef(initialExitCode ?? null);
   const terminalIdRef = useRef(terminalId);
   // Track output length from initial fetch to avoid re-writing in polling
   const lastOutputLengthRef = useRef(0);
   // Track status in a ref for use in polling callback
-  const statusRef = useRef<"running" | "exited">(initialExited ? "exited" : "running");
+  const statusRef = useRef<"running" | "exited">(
+    initialExited ? "exited" : "running",
+  );
 
   // Keep terminalIdRef in sync
   useEffect(() => {
@@ -100,8 +106,8 @@ export default function InlineTerminal({
     initializedRef.current = true;
 
     // Write the command label
-    terminal.writeln(`\x1b[1;33m$ ${commandLabel}\x1b[0m`);
-    terminal.writeln("");
+    // terminal.writeln(`\x1b[1;33m$ ${commandLabel}\x1b[0m`);
+    // terminal.writeln("");
 
     // Always fetch current output on mount. For completed terminals this gets
     // everything. For running terminals this gets a snapshot, and incremental
@@ -112,13 +118,13 @@ export default function InlineTerminal({
           terminal.write(result.output);
           lastOutputLengthRef.current = result.output.length;
         }
+        if (result?.cwd && !initialCwd) {
+          setCwd(result.cwd);
+        }
         if (result?.exitCode !== undefined) {
           exitCodeRef.current = result.exitCode;
           statusRef.current = "exited";
           setStatus("exited");
-          terminal.writeln(
-            `\r\n\x1b[33m[Process exited with code ${result.exitCode}]\x1b[0m`,
-          );
         }
       })
       .catch(() => {});
@@ -169,9 +175,9 @@ export default function InlineTerminal({
           setStatus("exited");
           const code = msg.params.exitCode ?? -1;
           exitCodeRef.current = code;
-          terminal.writeln(
-            `\r\n\x1b[33m[Process exited with code ${code}]\x1b[0m`,
-          );
+          // terminal.writeln(
+          //   `\r\n\x1b[33m[Process exited with code ${code}]\x1b[0m`,
+          // );
         }
       } catch {
         // not JSON
@@ -210,13 +216,16 @@ export default function InlineTerminal({
             lastOutputLengthRef.current = output.length;
           }
           // Check if exited
-          if (result?.exitCode !== undefined && statusRef.current !== "exited") {
+          if (
+            result?.exitCode !== undefined &&
+            statusRef.current !== "exited"
+          ) {
             exitCodeRef.current = result.exitCode;
             statusRef.current = "exited";
             setStatus("exited");
-            terminal.writeln(
-              `\r\n\x1b[33m[Process exited with code ${result.exitCode}]\x1b[0m`,
-            );
+            // terminal.writeln(
+            //   `\r\n\x1b[33m[Process exited with code ${result.exitCode}]\x1b[0m`,
+            // );
           }
         })
         .catch(() => {});
@@ -237,11 +246,14 @@ export default function InlineTerminal({
     return () => observer.disconnect();
   }, []);
 
+  const displayLabel = cwd || commandLabel;
+
   return (
     <div className="rounded-md border border-[var(--color-border)] overflow-hidden bg-[var(--color-background-deeper)] text-xs">
       <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-background-dark)]">
         <span className="text-[11px] font-mono text-[var(--color-foreground)] whitespace-nowrap overflow-hidden text-ellipsis max-w-[80%]">
-          <span className="text-[var(--color-primary)] font-bold">$</span> {commandLabel}
+          <span className="text-[var(--color-primary)] font-bold">$</span>{" "}
+          <span className="opacity-60">{displayLabel}</span>
         </span>
         {status === "exited" && (
           <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-[var(--color-primary-faint)] text-[var(--color-primary)] font-semibold flex-shrink-0">

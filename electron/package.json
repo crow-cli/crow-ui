@@ -1,0 +1,69 @@
+{
+  "name": "murder-ide",
+  "version": "0.1.0",
+  "description": "Murder IDE — AI-powered code editor",
+  "homepage": "https://github.com/thomas-wood/murder-ide",
+  "author": {
+    "name": "Thomas Wood",
+    "email": "odell.wood@gmail.com"
+  },
+  "main": "out/main.js",
+  "scripts": {
+    "dev": "tsc && electron .",
+    "build": "tsc && electron-builder",
+    "build:ts": "tsc",
+    "build:app": "tsc && electron-builder --dir",
+    "build:dist": "bun run build",
+    "build:dist:linux": "tsc && electron-builder --linux",
+    "build:dist:mac": "tsc && electron-builder --mac",
+    "build:dist:win": "tsc && electron-builder --win",
+    "start": "electron ."
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.4.0"
+  },
+  "build": {
+    "appId": "com.murder.ide",
+    "productName": "Murder IDE",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "icons/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../target/release/murder-server",
+        "to": "murder-server"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "icons"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "icons/icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "icons/icon.ico"
+    }
+  }
+}

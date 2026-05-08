@@ -147,7 +147,10 @@ const SuggestionPopup = forwardRef<
 
 // ─── Suggestion Config Factory ─────────────────────────────────────────────
 
-function makeSuggestionConfig(getItems: () => PopupItem[]) {
+function makeSuggestionConfig(
+  getItems: () => PopupItem[],
+  openRef?: React.MutableRefObject<boolean>,
+) {
   return {
     items: ({ query }: { query: string }) => {
       const allItems = getItems();
@@ -164,6 +167,7 @@ function makeSuggestionConfig(getItems: () => PopupItem[]) {
       let popup: TippyInstance;
       return {
         onStart: (props: SuggestionProps<PopupItem>) => {
+          if (openRef) openRef.current = true;
           component = new ReactRenderer(SuggestionPopup, {
             props,
             editor: props.editor,
@@ -197,6 +201,7 @@ function makeSuggestionConfig(getItems: () => PopupItem[]) {
           return component.ref?.onKeyDown(props) ?? false;
         },
         onExit() {
+          if (openRef) openRef.current = false;
           popup.destroy();
           component.destroy();
         },
@@ -301,6 +306,7 @@ export default function MessageEditor({
 }: MessageEditorProps) {
   const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
+  const suggestionOpenRef = useRef(false);
 
   // Build mention items from workspace files
   useEffect(() => {
@@ -363,7 +369,7 @@ export default function MessageEditor({
         ];
       },
     }).configure({
-      suggestion: makeSuggestionConfig(() => mentionItemsRef.current),
+      suggestion: makeSuggestionConfig(() => mentionItemsRef.current, suggestionOpenRef),
       HTMLAttributes: { class: "mention-chip" },
     });
   }, []); // stable — items function reads from ref
@@ -433,7 +439,7 @@ export default function MessageEditor({
         return true;
       },
       handleKeyDown: (_view, event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
+        if (event.key === "Enter" && !event.shiftKey && !suggestionOpenRef.current) {
           event.preventDefault();
           handleSendClick();
           return true;
