@@ -275,6 +275,15 @@ pub async fn handle_create_dir(params: &Value) -> Result<Value, String> {
 // Workspace handlers
 // ---------------------------------------------------------------------------
 
+/// Get the currently open workspace from in-memory state.
+/// Returns null if no workspace is open (e.g. after server restart).
+pub fn handle_get_current_workspace(state: &AppState, _params: &Value) -> Result<Value, String> {
+    match state.workspace_root() {
+        Some(root) => Ok(json!({ "workspace": root })),
+        None => Ok(json!({ "workspace": null })),
+    }
+}
+
 pub fn handle_workspace_open(state: &AppState, params: &Value) -> Result<Value, String> {
     let path = params["path"].as_str().ok_or("missing 'path'")?;
     state.set_workspace(path);
@@ -779,7 +788,7 @@ pub fn handle_add_recent_workspace(state: &AppState, params: &Value) -> Result<V
 }
 
 // ---------------------------------------------------------------------------
-// Mosaic layout handlers (SQLite-backed, per workspace)
+// Workspace layout handlers (SQLite-backed, per workspace)
 // ---------------------------------------------------------------------------
 
 /// Resolve workspace path: from params or from AppState.
@@ -790,20 +799,20 @@ fn resolve_workspace(state: &AppState, params: &Value) -> Result<String, String>
     state.workspace_root().ok_or("no workspace open".to_string())
 }
 
-/// Load the mosaic layout tree for the current workspace.
-pub fn handle_get_mosaic_layout(state: &AppState, params: &Value) -> Result<Value, String> {
+/// Load the workspace layout (flexlayout JSON) for the current workspace.
+pub fn handle_get_workspace_layout(state: &AppState, params: &Value) -> Result<Value, String> {
     let workspace = resolve_workspace(state, params)?;
-    let layout = murder_db::layout::load_mosaic_layout(&state.db.lock(), &workspace)
-        .map_err(|e| format!("failed to load mosaic layout: {e}"))?;
+    let layout = murder_db::layout::load_workspace_layout(&state.db.lock(), &workspace)
+        .map_err(|e| format!("failed to load workspace layout: {e}"))?;
     Ok(json!({ "layout": layout }))
 }
 
-/// Save the mosaic layout tree for the current workspace.
-pub fn handle_save_mosaic_layout(state: &AppState, params: &Value) -> Result<Value, String> {
+/// Save the workspace layout (flexlayout JSON) for the current workspace.
+pub fn handle_save_workspace_layout(state: &AppState, params: &Value) -> Result<Value, String> {
     let workspace = resolve_workspace(state, params)?;
     let layout_json = params["layout"].as_str().ok_or("missing 'layout'")?;
-    murder_db::layout::save_mosaic_layout(&state.db.lock(), &workspace, layout_json)
-        .map_err(|e| format!("failed to save mosaic layout: {e}"))?;
+    murder_db::layout::save_workspace_layout(&state.db.lock(), &workspace, layout_json)
+        .map_err(|e| format!("failed to save workspace layout: {e}"))?;
     Ok(json!({ "success": true }))
 }
 

@@ -18,7 +18,18 @@ import {
   FileJson,
   Settings,
   Activity,
+  SquareSplitVertical,
+  X,
 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuLabel,
+} from "./components/ui/context-menu";
+import { cn } from "./lib/utils";
 import { disposeModel, getModelContent, setModelContent } from "./components/EditorPane";
 import EditorPane from "./components/EditorPane";
 import ExplorerPane from "./components/ExplorerPane";
@@ -185,6 +196,9 @@ export default function App() {
     });
   }, [connected]);
 
+  // Track whether we've auto-restored workspace this session
+  const restoredRef = useRef(false);
+
   // Initialize FlexLayout model
   useEffect(() => {
     if (!connected) return;
@@ -274,7 +288,33 @@ export default function App() {
     setModelJson(initialModel);
   }, [connected]);
 
-  // Sessions are created per-chat-tab by ChatPane itself
+  // Auto-restore workspace on page refresh / reconnect
+  useEffect(() => {
+    if (!connected || !modelJson || restoredRef.current) return;
+    restoredRef.current = true;
+
+    (async () => {
+      try {
+        // First check if server already has a workspace open
+        const current = await ws.invoke<{ workspace?: string | null }>("get_current_workspace", {});
+        let path = current.workspace;
+
+        // If server has no workspace (e.g. restarted), fall back to most recent from DB
+        if (!path) {
+          const recent = await ws.invoke<Array<{ path: string; last_opened: string }>>("get_recent_workspaces", { limit: 1 });
+          if (recent && recent.length > 0) {
+            path = recent[0].path;
+          }
+        }
+
+        if (path) {
+          await handleOpenFolder(path);
+        }
+      } catch {
+        // Silently fail — user can manually open a workspace
+      }
+    })();
+  }, [connected, modelJson]);
 
   // Set up global open functions for non-React code
   useEffect(() => {
@@ -337,26 +377,69 @@ export default function App() {
       if (workspaceRootRef.current) {
         acpStore.createSession(sessionId, agentConfigRef.current, workspaceRootRef.current);
       }
+
+      // Find an existing chat tabset, or create one in the right place
       let targetId = "chat-tabset";
-      // If chat-tabset was removed (empty tabset auto-deleted), fallback to explorer-tabset
-      if (!model.getNodeById(targetId)) {
-        targetId = "explorer-tabset";
+      let targetNode = model.getNodeById(targetId);
+
+      if (!targetNode) {
+        // Search for any tabset containing a chat tab
+        model.visitNodes((node) => {
+          if (node.getType() === "tabset") {
+            const children = node.getChildren();
+            if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === "chat")) {
+              targetNode = node;
+              return false; // stop visiting
+            }
+          }
+          return true;
+        });
       }
-      model.doAction(
-        Actions.addTab(
-          {
-            type: "tab",
-            name: "Agent Chat",
-            component: "chat",
-            config: { sessionId },
-            id: chatId,
-          },
-          targetId,
-          DockLocation.CENTER,
-          -1,
-          true,
-        ),
-      );
+
+      if (targetNode) {
+        // Add to existing chat tabset
+        model.doAction(
+          Actions.addTab(
+            {
+              type: "tab",
+              name: "Agent Chat",
+              component: "chat",
+              config: { sessionId },
+              id: chatId,
+            },
+            targetNode.getId(),
+            DockLocation.CENTER,
+            -1,
+            true,
+          ),
+        );
+      } else {
+        // No chat tabset exists — create one by adding a new tab to the right of the editor row
+        // Find the main center row (parent of editor-tabset)
+        const editorTabset = model.getNodeById("editor-tabset");
+        if (editorTabset) {
+          const centerRow = editorTabset.getParent();
+          if (centerRow && centerRow.getType() === "row") {
+            // Pass just the tab JSON — FlexLayout's RowNode.drop() will wrap it
+            // in a new TabSetNode when docking to a non-CENTER location
+            model.doAction(
+              Actions.addNode(
+                {
+                  type: "tab",
+                  name: "Agent Chat",
+                  component: "chat",
+                  config: { sessionId },
+                  id: chatId,
+                },
+                centerRow.getId(),
+                DockLocation.RIGHT,
+                -1,
+                true,
+              ),
+            );
+          }
+        }
+      }
     });
   }, [connected, workspaceRoot]);
 
@@ -520,6 +603,20 @@ export default function App() {
     return () => window.removeEventListener("editor-close-tab", handler);
   }, [closeTab]);
 
+  // Debounced layout save — write flexlayout JSON to backend SQLite
+  const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveLayout = useCallback((modelJson: IJsonModel) => {
+    const wsRoot = workspaceRootRef.current;
+    if (!wsRoot) return;
+    if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
+    layoutSaveTimer.current = setTimeout(() => {
+      ws.invoke("save_workspace_layout", {
+        workspace: wsRoot,
+        layout: JSON.stringify(modelJson),
+      }).catch(() => {});
+    }, 500);
+  }, []);
+
   const handleOpenFolder = async (path: string) => {
     setShowFolderPicker(false);
     try {
@@ -528,6 +625,23 @@ export default function App() {
       // Track in recently opened
       await settings.addRecentlyOpened(path);
       setActiveActivity("explorer");
+
+      // Try to load saved layout for this workspace
+      const saved = await ws.invoke<{ layout?: string }>("get_workspace_layout", {
+        workspace: path,
+      }).catch(() => ({ layout: undefined }));
+
+      if (saved.layout) {
+        try {
+          const parsed: IJsonModel = JSON.parse(saved.layout);
+          const model = Model.fromJson(parsed);
+          model.setOnAllowDrop(onAllowDrop);
+          layoutModelRef.current = model;
+          setModelJson(parsed);
+        } catch {
+          // Invalid saved layout, keep default
+        }
+      }
     } catch (e: any) {
       console.error("Failed to open:", e);
     }
@@ -788,6 +902,82 @@ export default function App() {
     },
   ];
 
+  // Split tab — creates a new tabset next to the current one
+  // Uses Actions.addNode with DockLocation.RIGHT/LEFT which auto-wraps in a new TabSetNode
+  const splitTab = useCallback(
+    (direction: "right" | "left" | "down" | "up", nodeId: string) => {
+      const model = layoutModelRef.current;
+      if (!model) return;
+      const tabNode = model.getNodeById(nodeId);
+      if (!tabNode || tabNode.getType() !== "tab") return;
+
+      const tab = tabNode as TabNode;
+      const tabset = tab.getParent();
+      if (!tabset || tabset.getType() !== "tabset") return;
+
+      const component = tab.getComponent();
+      const tabName = tab.getName() || "Untitled";
+
+      // Generate unique IDs
+      const newTabId = `split-tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      // For chat tabs: create a NEW session, don't clone the existing one
+      let newConfig: any = {};
+      let newName = tabName;
+      if (component === "chat") {
+        const sessionId = `session-${Date.now()}`;
+        if (workspaceRootRef.current) {
+          acpStore.createSession(sessionId, agentConfigRef.current, workspaceRootRef.current);
+        }
+        newConfig = { sessionId };
+        newName = "Agent Chat";
+      } else {
+        // For other tabs, clone the config
+        newConfig = { ...(tab.getConfig() || {}) };
+      }
+
+      const newTabJson: any = {
+        type: "tab",
+        id: newTabId,
+        name: newName,
+        component,
+        config: Object.keys(newConfig).length > 0 ? newConfig : undefined,
+      };
+
+      // Map direction to DockLocation — RIGHT/LEFT on a TabSetNode
+      // will create a new TabSetNode split in that direction
+      const dockLocation = direction === "right" || direction === "down"
+        ? DockLocation.RIGHT
+        : DockLocation.LEFT;
+
+      // Add to the tabset (not the parent row). FlexLayout's drop() logic
+      // for non-CENTER locations on a TabSetNode creates a new RowNode wrapper
+      // and splits the layout properly.
+      model.doAction(Actions.addNode(newTabJson, tabset.getId(), dockLocation, -1, true));
+    },
+    [workspaceRoot],
+  );
+
+  const closeTabNode = useCallback(
+    (nodeId: string) => {
+      const model = layoutModelRef.current;
+      if (!model) return;
+      const node = model.getNodeById(nodeId);
+      if (!node) return;
+      // For chat tabs, close the session too
+      if (node.getType() === "tab") {
+        const tabNode = node as TabNode;
+        if (tabNode.getComponent() === "chat") {
+          const config = tabNode.getConfig() || {};
+          const sessionId = config.sessionId;
+          if (sessionId) acpStore.closeSession(sessionId);
+        }
+      }
+      model.doAction(Actions.deleteTab(nodeId));
+    },
+    [],
+  );
+
   // ── FlexLayout factory ──────────────────────────────────────────────────
 
   const layoutFactory = (node: TabNode) => {
@@ -918,8 +1108,54 @@ export default function App() {
           <Layout
             model={layoutModelRef.current}
             factory={layoutFactory}
+            onModelChange={() => {
+              const json = layoutModelRef.current?.toJson();
+              if (json) saveLayout(json);
+            }}
             onRenderTab={(node: TabNode, renderValues: ITabRenderValues) => {
               renderValues.leading = getTabIcon(node.getName());
+              // Wrap tab content in a context menu trigger for right-click split
+              const originalContent = renderValues.content;
+              const nodeId = node.getId();
+              renderValues.content = (
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div
+                      className="flex-1 h-full flex items-center min-w-0"
+                      onContextMenu={(e) => e.stopPropagation()}
+                    >
+                      {originalContent}
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-48">
+                    <ContextMenuLabel className="text-[11px] text-text-secondary px-2 py-1">
+                      Split Pane
+                    </ContextMenuLabel>
+                    <ContextMenuItem
+                      onClick={() => splitTab("right", nodeId)}
+                      className="gap-2"
+                    >
+                      <SquareSplitVertical className="w-3.5 h-3.5 rotate-90" />
+                      Split Right
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => splitTab("left", nodeId)}
+                      className="gap-2"
+                    >
+                      <SquareSplitVertical className="w-3.5 h-3.5 -rotate-90" />
+                      Split Left
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      onClick={() => closeTabNode(nodeId)}
+                      className="gap-2 text-red-400 focus:text-red-400 focus:bg-red-500/10"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Close
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+              );
             }}
           />
         )}

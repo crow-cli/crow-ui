@@ -267,13 +267,16 @@ export class AcpClient {
     this.setStatus("disconnected");
   }
 
-  /** Send a prompt to the active session. */
-  async prompt(text: string): Promise<PromptResponse> {
+  /** Send a prompt to the active session.
+   *
+   * Zed sends `ContentBlock[]` with interleaved text, resource_links,
+   * embedded_resources, and images. We match that format exactly.
+   */
+  async prompt(blocks: ContentBlock[]): Promise<PromptResponse> {
     if (!this.connection || !this.sessionId) {
       throw new Error("Not connected");
     }
-    const prompt: ContentBlock[] = [{ type: "text", text }];
-    return this.connection.prompt({ sessionId: this.sessionId, prompt });
+    return this.connection.prompt({ sessionId: this.sessionId, prompt: blocks });
   }
 
   /** Cancel the current prompt turn. */

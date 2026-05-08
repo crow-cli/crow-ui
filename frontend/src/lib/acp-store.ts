@@ -12,6 +12,7 @@ import {
   type ConnectionStatus,
   type SessionInfo,
 } from "./acp-client";
+import type { ContentBlock } from "@agentclientprotocol/sdk";
 
 // ─── Per-session state ───────────────────────────────────────────────────────
 
@@ -227,10 +228,10 @@ export function getClient(sessionId?: string): AcpClient | null {
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
-export async function prompt(sessionId: string, text: string) {
+export async function prompt(sessionId: string, blocks: ContentBlock[]) {
   const client = getClient(sessionId);
   if (!client) throw new Error("No client for session");
-  return client.prompt(text);
+  return client.prompt(blocks);
 }
 
 export async function cancel(sessionId: string) {
@@ -240,8 +241,11 @@ export async function cancel(sessionId: string) {
 }
 
 // Expose terminal ID mapping for inline terminal rendering
-export function getTerminalId(toolCallId: string): string | undefined {
-  const id = defaultSessionId;
+export function getTerminalId(
+  toolCallId: string,
+  sessionId?: string,
+): string | undefined {
+  const id = sessionId ?? defaultSessionId;
   if (!id) return undefined;
   const client = getClient(id);
   return client?.getTerminalId(toolCallId);

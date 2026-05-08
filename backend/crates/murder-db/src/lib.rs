@@ -37,8 +37,8 @@ pub use history::{
     ClipboardEntry, SearchHistoryEntry, TerminalSession,
 };
 pub use layout::{
-    delete_mosaic_layout, delete_tile_state, delete_tile_states, load_explorer_state,
-    load_mosaic_layout, load_tile_states, save_explorer_state, save_mosaic_layout,
+    delete_workspace_layout, delete_tile_state, delete_tile_states, load_explorer_state,
+    load_workspace_layout, load_tile_states, save_explorer_state, save_workspace_layout,
     save_tile_state,
 };
 pub use recent::{

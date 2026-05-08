@@ -242,7 +242,7 @@ export default function ChatSessionPane({
   const handleSend = useCallback(async () => {
     if (!input.trim() || connectionStatus !== "ready") return;
     try {
-      await acpStore.prompt(sessionId, input.trim());
+      await acpStore.prompt(sessionId, [{ type: "text", text: input.trim() }]);
       setInput("");
     } catch (err) {
       console.error("Prompt failed:", err);

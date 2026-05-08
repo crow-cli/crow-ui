@@ -1,3 +1,5 @@
+import { debug, debugError } from "./debug";
+
 interface WsRequest {
   id: number;
   method: string;
@@ -43,17 +45,17 @@ export class WsClient {
   constructor(private url: string) {}
 
   connect(): Promise<void> {
-    console.log("[ws] Connecting to", this.url);
+    debug("[ws] Connecting to", this.url);
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(this.url);
       this.ws.onopen = () => {
         this.connected = true;
-        console.log("[ws] Connected");
+        debug("[ws] Connected");
         resolve();
       };
       this.ws.onclose = () => {
         this.connected = false;
-        console.log("[ws] Disconnected");
+        debug("[ws] Disconnected");
         for (const [, { reject: rej }] of this.pending)
           rej("WebSocket disconnected");
         this.pending.clear();
@@ -80,7 +82,7 @@ export class WsClient {
         }
       };
       this.ws.onerror = () => {
-        console.error("[ws] Connection error");
+        debugError("[ws] Connection error");
         reject(new Error("WebSocket connection failed"));
       };
     });
@@ -139,9 +141,9 @@ export class WsClient {
     method: string,
     params: Record<string, unknown> = {},
   ): Promise<T> {
-    console.log("[ws] Invoking", method, params);
+    debug("[ws] Invoking", method, params);
     if (!this.ws || !this.connected) {
-      console.error("[ws] Not connected!", {
+      debugError("[ws] Not connected!", {
         ws: !!this.ws,
         connected: this.connected,
       });

@@ -243,6 +243,7 @@ async fn handle_message(text: &str, app: &App) -> Value {
         "create_dir" => handlers::handle_create_dir(&request.params).await,
 
         // Workspace methods
+        "get_current_workspace" => handlers::handle_get_current_workspace(&state, &request.params),
         "workspace_open" => handlers::handle_workspace_open(&state, &request.params),
         "workspace_expand" => handlers::handle_workspace_expand(&state, &request.params),
 
@@ -283,9 +284,9 @@ async fn handle_message(text: &str, app: &App) -> Value {
         "get_recent_workspaces" => handlers::handle_get_recent_workspaces(&state, &request.params),
         "add_recent_workspace" => handlers::handle_add_recent_workspace(&state, &request.params),
 
-        // Mosaic layout methods (SQLite-backed)
-        "get_mosaic_layout" => handlers::handle_get_mosaic_layout(&state, &request.params),
-        "save_mosaic_layout" => handlers::handle_save_mosaic_layout(&state, &request.params),
+        // Workspace layout methods (SQLite-backed)
+        "get_workspace_layout" => handlers::handle_get_workspace_layout(&state, &request.params),
+        "save_workspace_layout" => handlers::handle_save_workspace_layout(&state, &request.params),
 
         // Explorer state methods (SQLite-backed)
         "get_explorer_state" => handlers::handle_get_explorer_state(&state, &request.params),

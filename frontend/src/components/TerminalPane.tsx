@@ -89,16 +89,20 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
       if (termIdRef.current !== null && containerRef.current && containerRef.current.clientWidth > 0) {
         const dims = fitAddon.proposeDimensions();
         if (dims && Number.isFinite(dims.cols) && Number.isFinite(dims.rows)) {
-          ws.invoke("terminal_resize", {
-            id: termIdRef.current,
-            cols: dims.cols,
-            rows: dims.rows,
-          }).catch(() => {});
+          if (resizeTimeout) clearTimeout(resizeTimeout);
+          resizeTimeout = setTimeout(() => {
+            ws.invoke("terminal_resize", {
+              id: termIdRef.current,
+              cols: dims.cols,
+              rows: dims.rows,
+            }).catch(() => {});
+          }, 150);
         }
       }
     });
@@ -123,6 +127,7 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
     setInitialized(true);
 
     return () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeObserver.disconnect();
     };
   }, [workspaceRoot, terminalId]);

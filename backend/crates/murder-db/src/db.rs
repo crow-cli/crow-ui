@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 /// Current schema version. Bump when adding migrations.
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 /// Wraps a `SQLite` connection and ensures schema migrations run on open.
 pub struct Database {
@@ -102,6 +102,9 @@ impl Database {
         }
         if current < 4 {
             self.migration_v4()?;
+        }
+        if current < 5 {
+            self.migration_v5()?;
         }
 
         self.conn
@@ -330,6 +333,18 @@ impl Database {
                 ",
             )
             .context("migration v4")?;
+        Ok(())
+    }
+
+    /// V5: rename mosaic_layout → workspace_layout (generic, not tied to mosaic).
+    fn migration_v5(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "
+                ALTER TABLE mosaic_layout RENAME TO workspace_layout;
+                ",
+            )
+            .context("migration v5")?;
         Ok(())
     }
 }

@@ -4,6 +4,7 @@ import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
 import { math } from "@streamdown/math";
 import "katex/dist/katex.min.css";
+import type { ContentBlock } from "@agentclientprotocol/sdk";
 
 import {
   type AcpNotification,
@@ -17,6 +18,7 @@ import { getCachedFile, cacheFile } from "../lib/file-cache";
 import InlineTerminal from "./InlineTerminal";
 import { FileReadView, FileWriteView, FileEditView } from "./FileViews";
 import { WebFetchView, WebSearchView } from "./WebViews";
+import MessageEditor from "./MessageEditor";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -42,7 +44,6 @@ export default function ChatPane({
   onClose,
   onFileChanged,
 }: ChatPaneProps) {
-  const [input, setInput] = useState("");
   const [notifications, setNotifications] = useState<AcpNotification[]>([]);
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
@@ -57,7 +58,6 @@ export default function ChatPane({
   >(new Map());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const prevNotifLen = useRef(0);
 
   // Sync from store
@@ -102,10 +102,7 @@ export default function ChatPane({
     prevNotifLen.current = notifications.length;
   }, [notifications.length]);
 
-  useEffect(() => {
-    if (connectionStatus === "ready")
-      setTimeout(() => inputRef.current?.focus(), 50);
-  }, [connectionStatus]);
+
 
   // Extract content from a tool call — checks content blocks, rawOutput, and rawInput
   function extractContentFromTool(tool: any): string | null {
@@ -264,16 +261,18 @@ export default function ChatPane({
     [onFileChanged],
   );
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || connectionStatus !== "ready") return;
-    const text = input.trim();
-    setInput("");
-    try {
-      await acpStore.prompt(sessionId, text);
-    } catch (err) {
-      console.error("Prompt failed:", err);
-    }
-  }, [input, connectionStatus, sessionId]);
+  const handleSend = useCallback(
+    async (blocks: ContentBlock[]) => {
+      if (connectionStatus !== "ready") return;
+      if (blocks.length === 0) return;
+      try {
+        await acpStore.prompt(sessionId, blocks);
+      } catch (err) {
+        console.error("Prompt failed:", err);
+      }
+    },
+    [connectionStatus, sessionId],
+  );
 
   const handleCancel = useCallback(async () => {
     try {
@@ -302,12 +301,7 @@ export default function ChatPane({
     }
   }, [pendingPermission, sessionId]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+
 
   const isReady = connectionStatus === "ready";
   const isStreaming =
@@ -319,15 +313,17 @@ export default function ChatPane({
     );
 
   const statusLabel =
-    connectionStatus === "disconnected"
-      ? "Disconnected"
-      : connectionStatus === "connecting"
-        ? "Connecting..."
-        : connectionStatus === "initializing"
-          ? "Initializing..."
-          : connectionStatus === "creating_session"
-            ? "Creating session..."
-            : "Ready";
+    !workspaceRoot
+      ? "Waiting for workspace..."
+      : connectionStatus === "disconnected"
+        ? "Disconnected"
+        : connectionStatus === "connecting"
+          ? "Connecting..."
+          : connectionStatus === "initializing"
+            ? "Initializing..."
+            : connectionStatus === "creating_session"
+              ? "Creating session..."
+              : "Ready";
 
   const messageGroups: GroupedNotifications = useMemo(() => {
     const sessionNotes = notifications.filter(
@@ -343,7 +339,7 @@ export default function ChatPane({
   }, [notifications]);
 
   return (
-    <div className="flex flex-col h-full min-w-0 bg-background text-text-primary text-[13px] overflow-hidden font-sans">
+    <div data-testid="chat-pane" className="flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans bg-transparent">
       <Header
         statusLabel={statusLabel}
         isReady={isReady}
@@ -354,7 +350,7 @@ export default function ChatPane({
         onCancel={handleCancel}
       />
 
-      {connectionStatus === "disconnected" && <ConnectionBar />}
+      {workspaceRoot && connectionStatus === "disconnected" && <ConnectionBar />}
 
       {pendingPermission && (
         <PermissionBar
@@ -364,7 +360,7 @@ export default function ChatPane({
         />
       )}
 
-      <div className="chat-messages flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
+      <div data-testid="chat-messages" className="chat-messages flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
         {messageGroups.length === 0 && (
           <div className="text-center text-text-secondary text-sm mt-10">
             {statusLabel}
@@ -377,23 +373,21 @@ export default function ChatPane({
             isStreaming={isStreaming}
             isLast={idx === messageGroups.length - 1}
             fetchedFiles={fetchedFiles}
+            sessionId={sessionId}
           />
         ))}
         <div ref={messagesEndRef} />
       </div>
 
-      <InputBar
-        input={input}
-        setInput={setInput}
-        onSend={handleSend}
-        onKeyDown={handleKeyDown}
+      <MessageEditor
+        workspaceRoot={workspaceRoot}
         disabled={!isReady}
-        inputRef={inputRef}
         placeholder={
           isReady
             ? `Ask ${sessionInfo?.agentDisplayName || "agent"}...`
             : statusLabel
         }
+        onSend={handleSend}
       />
     </div>
   );
@@ -429,7 +423,7 @@ function Header({
         : "bg-red-400";
 
   return (
-    <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface shrink-0">
+    <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5 bg-zinc-950/40 backdrop-blur-md shrink-0">
       <div className="flex items-center gap-2">
         <span className={`w-2 h-2 rounded-full ${statusColor}`} />
         <span className="text-[13px] font-semibold">{agentName}</span>
@@ -511,55 +505,14 @@ function PermissionBar({
   );
 }
 
-function InputBar({
-  input,
-  setInput,
-  onSend,
-  onKeyDown,
-  disabled,
-  placeholder,
-  inputRef,
-}: {
-  input: string;
-  setInput: (s: string) => void;
-  onSend: () => void;
-  onKeyDown: (e: React.KeyboardEvent) => void;
-  disabled: boolean;
-  placeholder: string;
-  inputRef?: React.RefObject<HTMLInputElement | null>;
-}) {
-  return (
-    <div className="px-3 py-2 border-t border-border flex gap-2 shrink-0">
-      <input
-        ref={inputRef}
-        type="text"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        className="flex-1 px-2.5 py-1.5 bg-surface border border-border rounded-md text-text-primary text-[13px] outline-none"
-      />
-      <button
-        onClick={onSend}
-        disabled={disabled || !input.trim()}
-        className={`px-4 py-1.5 rounded font-semibold text-[13px] border-none ${
-          !disabled && input.trim()
-            ? "bg-violet-500 text-white cursor-pointer"
-            : "bg-surface-elevated text-text-secondary cursor-default"
-        }`}
-      >
-        Send
-      </button>
-    </div>
-  );
-}
+
 
 function MessageGroup({
   group,
   isStreaming,
   isLast,
   fetchedFiles,
+  sessionId,
 }: {
   group: GroupItem[];
   isStreaming: boolean;
@@ -568,6 +521,7 @@ function MessageGroup({
     string,
     { path: string; content: string; beforeContent?: string }
   >;
+  sessionId: string;
 }) {
   const update = (group[0].data as any)?.update;
   const stype = update?.sessionUpdate || update?.type;
@@ -577,7 +531,7 @@ function MessageGroup({
     if (!text) return null;
     return (
       <div className="flex justify-end">
-        <div className="ml-auto max-w-[70%] px-3 py-2 bg-violet-500/20 rounded-xl rounded-br-sm text-[13px] leading-relaxed whitespace-pre-wrap break-words text-text-primary">
+        <div className="ml-auto max-w-[70%] px-3 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl rounded-br-sm text-[13px] leading-relaxed whitespace-pre-wrap break-words text-text-primary backdrop-blur-sm shadow-[0_0_12px_rgba(139,92,246,0.08)]">
           {text}
         </div>
       </div>
@@ -588,7 +542,7 @@ function MessageGroup({
     const text = extractGroupText(group);
     if (!text) return null;
     return (
-      <div className="max-w-[85%] text-[13px] leading-relaxed text-text-primary">
+      <div className="w-full px-4 py-3 text-[13px] leading-relaxed text-text-primary">
         <Streamdown plugins={{ code, mermaid, math }} isAnimating={isStreaming}>
           {text}
         </Streamdown>
@@ -617,6 +571,7 @@ function MessageGroup({
         group={group}
         isLast={isLast}
         fetchedFiles={fetchedFiles}
+        sessionId={sessionId}
       />
     );
   }
@@ -640,6 +595,7 @@ function ToolNotificationsBlock({
   group,
   isLast,
   fetchedFiles,
+  sessionId,
 }: {
   group: any[];
   isLast: boolean;
@@ -647,6 +603,7 @@ function ToolNotificationsBlock({
     string,
     { path: string; content: string; beforeContent?: string }
   >;
+  sessionId: string;
 }) {
   const updates = group.map((g) => g.data?.update).filter(Boolean);
   const validUpdates = updates.filter((u: any) => u.toolCallId);
@@ -662,6 +619,7 @@ function ToolNotificationsBlock({
             tool={tc}
             isLast={isLast}
             fetchedFile={fetchedFiles.get(tc.toolCallId)}
+            sessionId={sessionId}
           />
         ))}
       </div>
@@ -675,10 +633,12 @@ function ToolCallAccordion({
   tool,
   isLast,
   fetchedFile,
+  sessionId,
 }: {
   tool: any;
   isLast: boolean;
   fetchedFile?: { path: string; content: string; beforeContent?: string };
+  sessionId: string;
 }) {
   const [open, setOpen] = useState(true);
   const status = tool.status || "in_progress";
@@ -698,7 +658,7 @@ function ToolCallAccordion({
   // Prefer terminalId from content block, fallback to tracked mapping
   let terminalId = terminalContent?.terminalId;
   if (!terminalId) {
-    terminalId = acpStore.getTerminalId(tool.toolCallId);
+    terminalId = acpStore.getTerminalId(tool.toolCallId, sessionId);
   }
   const commandLabel = tool.title || kind;
 

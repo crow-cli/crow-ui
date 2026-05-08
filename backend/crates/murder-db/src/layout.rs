@@ -5,45 +5,45 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::db::Database;
 
-// ── Mosaic Layout ──────────────────────────────────────────────────────────────
+// ── Workspace Layout (generic, stores flexlayout JSON) ────────────────────────
 
-/// Save the mosaic layout tree (as JSON) for a workspace.
-pub fn save_mosaic_layout(db: &Database, workspace_path: &str, layout_json: &str) -> Result<()> {
+/// Save the workspace layout (as JSON) for a workspace.
+pub fn save_workspace_layout(db: &Database, workspace_path: &str, layout_json: &str) -> Result<()> {
     db.conn()
         .execute(
-            "INSERT INTO mosaic_layout (workspace_path, layout_json, updated_at)
+            "INSERT INTO workspace_layout (workspace_path, layout_json, updated_at)
              VALUES (?1, ?2, datetime('now'))
              ON CONFLICT(workspace_path)
              DO UPDATE SET layout_json = ?2, updated_at = datetime('now')",
             params![workspace_path, layout_json],
         )
-        .context("save mosaic layout")?;
+        .context("save workspace layout")?;
     Ok(())
 }
 
-/// Load the mosaic layout tree for a workspace. Returns `None` if not found.
-pub fn load_mosaic_layout(db: &Database, workspace_path: &str) -> Result<Option<String>> {
+/// Load the workspace layout for a workspace. Returns `None` if not found.
+pub fn load_workspace_layout(db: &Database, workspace_path: &str) -> Result<Option<String>> {
     let mut stmt = db
         .conn()
-        .prepare("SELECT layout_json FROM mosaic_layout WHERE workspace_path = ?1")
+        .prepare("SELECT layout_json FROM workspace_layout WHERE workspace_path = ?1")
         .context("prepare load layout")?;
 
     let result = stmt
         .query_row(params![workspace_path], |row| row.get(0))
         .optional()
-        .context("query mosaic layout")?;
+        .context("query workspace layout")?;
 
     Ok(result)
 }
 
-/// Delete the mosaic layout for a workspace.
-pub fn delete_mosaic_layout(db: &Database, workspace_path: &str) -> Result<()> {
+/// Delete the workspace layout for a workspace.
+pub fn delete_workspace_layout(db: &Database, workspace_path: &str) -> Result<()> {
     db.conn()
         .execute(
-            "DELETE FROM mosaic_layout WHERE workspace_path = ?1",
+            "DELETE FROM workspace_layout WHERE workspace_path = ?1",
             params![workspace_path],
         )
-        .context("delete mosaic layout")?;
+        .context("delete workspace layout")?;
     Ok(())
 }
 
@@ -178,19 +178,19 @@ mod tests {
     }
 
     #[test]
-    fn save_and_load_mosaic_layout() {
+    fn save_and_load_workspace_layout() {
         let db = test_db();
         let workspace = "/home/test/project";
         let layout = r#"{"first":"editor-1","second":"terminal-1","direction":"row"}"#;
-        save_mosaic_layout(&db, workspace, layout).unwrap();
-        let loaded = load_mosaic_layout(&db, workspace).unwrap();
+        save_workspace_layout(&db, workspace, layout).unwrap();
+        let loaded = load_workspace_layout(&db, workspace).unwrap();
         assert_eq!(loaded, Some(layout.to_string()));
     }
 
     #[test]
-    fn load_mosaic_layout_returns_none_for_missing() {
+    fn load_workspace_layout_returns_none_for_missing() {
         let db = test_db();
-        let loaded = load_mosaic_layout(&db, "/nonexistent").unwrap();
+        let loaded = load_workspace_layout(&db, "/nonexistent").unwrap();
         assert!(loaded.is_none());
     }
 

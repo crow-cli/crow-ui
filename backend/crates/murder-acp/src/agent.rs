@@ -101,47 +101,48 @@ impl AgentManager {
             }
         });
 
-        // Task: pump lines from agent stdout+stderr → broadcast channel (all clients)
+        // Task: pump lines from agent stdout → broadcast channel (JSON-RPC protocol)
         let events_tx = self.events_tx.clone();
         let agent_id = id.clone();
         tokio::spawn(async move {
-            let mut stdout_buf = String::new();
-            let mut stderr_buf = String::new();
-            let mut stdout_reader = tokio::io::BufReader::new(stdout);
-            let mut stderr_reader = tokio::io::BufReader::new(stderr);
+            let mut buf = String::new();
+            let mut reader = tokio::io::BufReader::new(stdout);
             loop {
-                tokio::select! {
-                    n = stdout_reader.read_line(&mut stdout_buf) => {
-                        match n {
-                            Ok(0) => break,
-                            Ok(_) => {
-                                let trimmed = stdout_buf.trim();
-                                if !trimmed.is_empty() {
-                                    broadcast_line(&events_tx, &agent_id, trimmed);
-                                }
-                                stdout_buf.clear();
-                            }
-                            Err(e) => {
-                                warn!("Failed to read from agent stdout: {e}");
-                                break;
-                            }
+                match reader.read_line(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = buf.trim();
+                        if !trimmed.is_empty() {
+                            broadcast_line(&events_tx, &agent_id, trimmed);
                         }
+                        buf.clear();
                     }
-                    n = stderr_reader.read_line(&mut stderr_buf) => {
-                        match n {
-                            Ok(0) => break,
-                            Ok(_) => {
-                                let trimmed = stderr_buf.trim();
-                                if !trimmed.is_empty() {
-                                    broadcast_line(&events_tx, &agent_id, trimmed);
-                                }
-                                stderr_buf.clear();
-                            }
-                            Err(e) => {
-                                warn!("Failed to read from agent stderr: {e}");
-                                break;
-                            }
+                    Err(e) => {
+                        warn!("Failed to read from agent stdout: {e}");
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Task: pump lines from agent stderr → local logs only (not JSON-RPC)
+        let agent_id_err = id.clone();
+        tokio::spawn(async move {
+            let mut buf = String::new();
+            let mut reader = tokio::io::BufReader::new(stderr);
+            loop {
+                match reader.read_line(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = buf.trim_end_matches(['\n', '\r']);
+                        if !trimmed.is_empty() {
+                            warn!("[{} stderr] {}", agent_id_err, trimmed);
                         }
+                        buf.clear();
+                    }
+                    Err(e) => {
+                        warn!("Failed to read from agent stderr: {e}");
+                        break;
                     }
                 }
             }
