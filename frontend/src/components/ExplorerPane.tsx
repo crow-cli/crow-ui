@@ -483,7 +483,7 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
 
   return (
     <div
-      className="h-full flex flex-col bg-surface relative"
+      className="h-full flex flex-col bg-surface/70 backdrop-blur-md relative"
       onContextMenu={handleRootContextMenu}
     >
       {/* File tree */}

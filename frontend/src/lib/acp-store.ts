@@ -231,6 +231,29 @@ export function getClient(sessionId?: string): AcpClient | null {
 export async function prompt(sessionId: string, blocks: ContentBlock[]) {
   const client = getClient(sessionId);
   if (!client) throw new Error("No client for session");
+
+  // Add user message to local notifications so it appears in chat immediately
+  const userText = blocks
+    .map((b) => (b.type === "text" ? b.text : b.type === "image" ? "[Image]" : "[File]"))
+    .join("");
+  if (userText) {
+    const state = sessions.get(sessionId);
+    if (state) {
+      const notification: AcpNotification = {
+        id: `user-msg-${Date.now()}`,
+        type: "session_notification",
+        data: {
+          update: {
+            sessionUpdate: "user_message_chunk",
+            content: { text: userText },
+          },
+        },
+      };
+      state.notifications = [...state.notifications, notification];
+      notifySession(sessionId);
+    }
+  }
+
   return client.prompt(blocks);
 }
 

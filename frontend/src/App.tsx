@@ -114,7 +114,7 @@ export default function App() {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeActivity, setActiveActivity] = useState<ActivityId>("explorer");
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [explorerVisible, setExplorerVisible] = useState(true);
   const [_menuOpen, setMenuOpen] = useState<string | null>(null);
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorCol, setCursorCol] = useState(1);
@@ -194,6 +194,17 @@ export default function App() {
     });
   }, [findTabsetsByComponent]);
 
+  // Toggle explorer border visibility
+  const toggleExplorer = useCallback(() => {
+    const model = layoutModelRef.current;
+    if (!model) return;
+    const border = model.getBorderSet().getBorderMap().get(DockLocation.RIGHT);
+    if (!border) return;
+    const next = !(border.getAttr("show") as boolean);
+    model.doAction(Actions.updateNodeAttributes(border.getId(), { show: next } as any));
+    setExplorerVisible(next);
+  }, []);
+
   // Load agent config from JSON file
   useEffect(() => {
     fetch("/agent-config.json")
@@ -272,31 +283,30 @@ export default function App() {
         tabSetEnableMaximize: false,
         tabSetEnableSingleTabStretch: false,
       },
-      borders: [],
+      borders: [
+        {
+          type: "border",
+          location: "right",
+          size: 240,
+          selected: 0,
+          children: [
+            {
+              type: "tab",
+              id: "explorer-tab",
+              name: "Explorer",
+              component: "explorer",
+            },
+          ],
+        },
+      ],
       layout: {
         type: "row",
         weight: 100,
         children: [
-          // Explorer panel (left)
-          {
-            type: "tabset",
-            id: "explorer-tabset",
-            weight: 20,
-            selected: 0,
-            enableTabStrip: false,
-            children: [
-              {
-                type: "tab",
-                id: "explorer-tab",
-                name: "Explorer",
-                component: "explorer",
-              },
-            ],
-          },
           // Center stack: Editor (top) + Terminal (bottom)
           {
             type: "row",
-            weight: 55,
+            weight: 100,
             children: [
               {
                 type: "tabset",
@@ -624,7 +634,7 @@ export default function App() {
       if (ctrl && e.key === "b" && !isInput) {
         e.preventDefault();
         e.stopPropagation();
-        setSidebarVisible((v) => !v);
+        toggleExplorer();
         return;
       }
       if (ctrl && e.key === "`" && !isInput) {
@@ -652,7 +662,6 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         setActiveActivity("rpc");
-        setSidebarVisible(true);
         return;
       }
       if (e.key === "Escape") {
@@ -765,7 +774,7 @@ export default function App() {
           break;
         }
         case "toggle_sidebar":
-          setSidebarVisible((v) => !v);
+          toggleExplorer();
           break;
         case "toggle_terminal":
           toggleMinimize("terminal");
@@ -781,15 +790,13 @@ export default function App() {
           break;
         case "explorer":
           setActiveActivity("explorer");
-          setSidebarVisible(true);
+          toggleExplorer();
           break;
         case "search":
           setActiveActivity("search");
-          setSidebarVisible(true);
           break;
         case "source_control":
           setActiveActivity("git");
-          setSidebarVisible(true);
           break;
         case "terminal":
           globalOpenTerminal();
@@ -799,7 +806,6 @@ export default function App() {
           break;
         case "extensions":
           setActiveActivity("extensions");
-          setSidebarVisible(true);
           break;
         case "chat":
           globalOpenChat();
@@ -820,7 +826,7 @@ export default function App() {
                     name: "ACP Log",
                     component: "rpc",
                   },
-                  "explorer-tabset",
+                  "editor-tabset",
                   DockLocation.CENTER,
                   -1,
                 ),
@@ -845,7 +851,7 @@ export default function App() {
                     name: "Settings",
                     component: "settings",
                   },
-                  "explorer-tabset",
+                  "editor-tabset",
                   DockLocation.CENTER,
                   -1,
                 ),
@@ -1239,12 +1245,9 @@ export default function App() {
         active={activeActivity}
         onActivate={(id) => {
           if (id === "explorer") {
-            setSidebarVisible((v) => !v);
-            setActiveActivity(id);
-          } else {
-            setActiveActivity(id);
-            setSidebarVisible(true);
+            toggleExplorer();
           }
+          setActiveActivity(id);
         }}
         connected={connected}
         saving={saving}
@@ -1262,6 +1265,7 @@ export default function App() {
         editorsMinimized={findTabsetsByComponent("editor").every((id) => minimizedTabsets.has(id)) && findTabsetsByComponent("editor").length > 0}
         terminalsMinimized={findTabsetsByComponent("terminal").every((id) => minimizedTabsets.has(id)) && findTabsetsByComponent("terminal").length > 0}
         chatsMinimized={findTabsetsByComponent("chat").every((id) => minimizedTabsets.has(id)) && findTabsetsByComponent("chat").length > 0}
+        explorerVisible={explorerVisible}
         editorTileCount={countMinimizedTabs("editor")}
         terminalTileCount={countMinimizedTabs("terminal")}
         chatTileCount={countMinimizedTabs("chat")}

@@ -45,6 +45,7 @@ interface BottomBarProps {
   onToggleChats: () => void;
   chatsMinimized: boolean;
   chatTileCount: number;
+  explorerVisible: boolean;
 }
 
 interface ActivityDef {
@@ -82,13 +83,14 @@ export default function BottomBar({
   workspaceName,
   onToggleEditors,
   onToggleTerminals,
-  onToggleChats,
   editorsMinimized,
   terminalsMinimized,
-  chatsMinimized,
   editorTileCount,
   terminalTileCount,
+  onToggleChats,
+  chatsMinimized,
   chatTileCount,
+  explorerVisible,
 }: BottomBarProps) {
   const isActive = (id: ActivityId) => active === id;
 
@@ -219,9 +221,9 @@ export default function BottomBar({
         <Button
           variant="ghost"
           size="icon"
-          title="Explorer"
+          title={explorerVisible ? "Hide Explorer" : "Show Explorer"}
           onClick={() => onActivate("explorer")}
-          className={`h-7 w-7 rounded-md ${isActive("explorer") ? "text-accent" : "text-text-secondary"}`}
+          className={`h-7 w-7 rounded-md ${explorerVisible ? "text-accent" : "text-text-secondary"}`}
         >
           <IconExplorer size={14} />
         </Button>

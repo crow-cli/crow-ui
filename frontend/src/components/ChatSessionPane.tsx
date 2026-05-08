@@ -554,9 +554,7 @@ function InputBar({
           background:
             !disabled && input.trim() ? "var(--accent)" : "var(--bg-tertiary)",
           color:
-            !disabled && input.trim()
-              ? "var(--bg-hover)"
-              : "var(--text-muted)",
+            !disabled && input.trim() ? "var(--bg-hover)" : "var(--text-muted)",
           border: "none",
           borderRadius: 4,
           cursor: !disabled && input.trim() ? "pointer" : "default",
@@ -642,10 +640,8 @@ function MessageGroup({
         open
         style={{ fontSize: 12, color: "var(--text-muted)", opacity: 0.7 }}
       >
-        <summary
-          style={{ cursor: "pointer", fontStyle: "italic", userSelect: "none" }}
-        >
-          💭 Thinking…
+        <summary style={{ cursor: "pointer", userSelect: "none" }}>
+          Thinking
         </summary>
         <div
           style={{

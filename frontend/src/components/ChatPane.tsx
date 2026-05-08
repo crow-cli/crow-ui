@@ -376,7 +376,7 @@ export default function ChatPane({
 
       <div
         data-testid="chat-messages"
-        className="chat-messages flex-1 overflow-y-auto p-2 flex flex-col gap-1.5 min-h-0"
+        className="chat-messages flex-1 overflow-y-auto py-3 flex flex-col gap-2 min-h-0"
       >
         {messageGroups.length === 0 && (
           <div className="text-center text-text-secondary text-sm mt-10">
@@ -544,50 +544,19 @@ function MessageGroup({
   if (stype === "user_message_chunk") {
     const text = extractGroupText(group);
     if (!text) return null;
-    return (
-      <div className="flex justify-end">
-        <div className="ml-auto max-w-[80%] px-3 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl rounded-br-sm text-[13px] leading-relaxed text-text-primary backdrop-blur-sm shadow-[0_0_12px_rgba(139,92,246,0.08)]">
-          <Streamdown
-            plugins={{ mermaid, math }}
-            isAnimating={false}
-            components={{ code: MarkdownCode }}
-          >
-            {text}
-          </Streamdown>
-        </div>
-      </div>
-    );
+    return <UserMessage text={text} />;
   }
 
   if (stype === "agent_message_chunk") {
     const text = extractGroupText(group);
     if (!text) return null;
-    return (
-      <div className="w-full px-3 py-2 text-[13px] leading-relaxed text-text-primary">
-        <Streamdown
-          plugins={{ mermaid, math }}
-          isAnimating={isStreaming}
-          components={{ code: MarkdownCode }}
-        >
-          {text}
-        </Streamdown>
-      </div>
-    );
+    return <AgentMessage text={text} isStreaming={isStreaming} />;
   }
 
   if (stype === "agent_thought_chunk") {
     const text = extractGroupText(group);
     if (!text) return null;
-    return (
-      <details open className="text-xs text-text-secondary opacity-70">
-        <summary className="cursor-pointer italic select-none">
-          💭 Thinking…
-        </summary>
-        <div className="mt-1 px-2 border-l-2 border-text-secondary pl-2 whitespace-pre-wrap text-xs">
-          {text}
-        </div>
-      </details>
-    );
+    return <ThinkingBlock text={text} />;
   }
 
   if (stype === "tool_call" || stype === "tool_call_update") {
@@ -604,6 +573,63 @@ function MessageGroup({
   if (stype === "plan") return <PlansBlock group={group} />;
 
   return null;
+}
+
+/* ── Message Components ─────────────────────────────────────────────── */
+
+function Message({ children }: { children: React.ReactNode }) {
+  return <div className="px-5 py-1">{children}</div>;
+}
+
+function UserMessage({ text }: { text: string }) {
+  return (
+    <Message>
+      <div className="inline-block max-w-[85%] rounded-lg border border-violet-500/20 bg-violet-500/10 px-4 py-2.5 font-mono text-[13px] leading-relaxed text-text-primary shadow-[0_0_12px_rgba(139,92,246,0.08)]">
+        <Streamdown
+          plugins={{ mermaid, math }}
+          isAnimating={false}
+          components={{ code: MarkdownCode }}
+        >
+          {text}
+        </Streamdown>
+      </div>
+    </Message>
+  );
+}
+
+function AgentMessage({
+  text,
+  isStreaming,
+}: {
+  text: string;
+  isStreaming: boolean;
+}) {
+  return (
+    <Message>
+      <div className="text-[13px] leading-relaxed text-text-primary">
+        <Streamdown
+          plugins={{ mermaid, math }}
+          isAnimating={isStreaming}
+          components={{ code: MarkdownCode }}
+        >
+          {text}
+        </Streamdown>
+      </div>
+    </Message>
+  );
+}
+
+function ThinkingBlock({ text }: { text: string }) {
+  return (
+    <Message>
+      <details open className="text-xs text-text-secondary opacity-70">
+        <summary className="cursor-pointer select-none">Thinking</summary>
+        <div className="mt-1 border-l-2 border-text-secondary pl-3 whitespace-pre-wrap text-xs">
+          {text}
+        </div>
+      </details>
+    </Message>
+  );
 }
 
 function extractGroupText(group: GroupItem[]): string {
@@ -637,17 +663,19 @@ function ToolNotificationsBlock({
   try {
     const toolCalls = mergeToolCalls(validUpdates);
     return (
-      <div className="flex flex-col gap-1 max-w-[85%]">
-        {toolCalls.map((tc) => (
-          <ToolCallAccordion
-            key={tc.toolCallId}
-            tool={tc}
-            isLast={isLast}
-            fetchedFile={fetchedFiles.get(tc.toolCallId)}
-            sessionId={sessionId}
-          />
-        ))}
-      </div>
+      <Message>
+        <div className="flex flex-col gap-1 max-w-[85%]">
+          {toolCalls.map((tc) => (
+            <ToolCallAccordion
+              key={tc.toolCallId}
+              tool={tc}
+              isLast={isLast}
+              fetchedFile={fetchedFiles.get(tc.toolCallId)}
+              sessionId={sessionId}
+            />
+          ))}
+        </div>
+      </Message>
     );
   } catch {
     return null;
@@ -686,7 +714,8 @@ function ToolCallAccordion({
     terminalId = acpStore.getTerminalId(tool.toolCallId, sessionId);
   }
   const commandLabel = tool.title || kind;
-  const cwd = tool.rawInput?.cwd || acpStore.getSession(sessionId).cwd || undefined;
+  const cwd =
+    tool.rawInput?.cwd || acpStore.getSession(sessionId).cwd || undefined;
 
   // Extract web fetch info
   const rawOutput = tool.rawOutput;
@@ -883,35 +912,37 @@ function PlansBlock({ group }: { group: any[] }) {
   if (deduped.length === 0) return null;
 
   return (
-    <div className="max-w-[85%] text-xs rounded-md border border-border p-2 bg-surface">
-      <div className="text-[11px] font-semibold text-text-secondary mb-1">
-        Tasks ({deduped.length})
-      </div>
-      {deduped.map((item: any, i: number) => (
-        <div
-          key={i}
-          className={`flex items-center gap-1.5 py-0.5 text-xs ${
-            item.status === "completed"
-              ? "text-text-secondary"
-              : "text-text-primary"
-          }`}
-        >
-          <span className="text-[10px]">
-            {item.status === "completed"
-              ? "✅"
-              : item.status === "in_progress"
-                ? "🔄"
-                : "⬜"}
-          </span>
-          <span
-            className={
-              item.status === "completed" ? "line-through opacity-50" : ""
-            }
-          >
-            {item.content || item.title || item.description}
-          </span>
+    <Message>
+      <div className="max-w-[85%] text-xs rounded-md border border-border p-2 bg-surface">
+        <div className="text-[11px] font-semibold text-text-secondary mb-1">
+          Tasks ({deduped.length})
         </div>
-      ))}
-    </div>
+        {deduped.map((item: any, i: number) => (
+          <div
+            key={i}
+            className={`flex items-center gap-1.5 py-0.5 text-xs ${
+              item.status === "completed"
+                ? "text-text-secondary"
+                : "text-text-primary"
+            }`}
+          >
+            <span className="text-[10px]">
+              {item.status === "completed"
+                ? "✅"
+                : item.status === "in_progress"
+                  ? "🔄"
+                  : "⬜"}
+            </span>
+            <span
+              className={
+                item.status === "completed" ? "line-through opacity-50" : ""
+              }
+            >
+              {item.content || item.title || item.description}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Message>
   );
 }

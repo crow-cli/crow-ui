@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "tailwindcss" important;
 @import "flexlayout-react/style/light.css";
 
 /* ── Crosshatch Grid + Noise Texture ───────────────────────────────── */

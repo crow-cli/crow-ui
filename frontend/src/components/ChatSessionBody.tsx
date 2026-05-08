@@ -353,7 +353,9 @@ export default function ChatSessionBody({
               <Button
                 key={opt.optionId}
                 size="sm"
-                variant={opt.kind?.startsWith("allow") ? "default" : "destructive"}
+                variant={
+                  opt.kind?.startsWith("allow") ? "default" : "destructive"
+                }
                 className="text-[11px] h-7 px-2.5"
                 onClick={() =>
                   handleResolvePermission({
@@ -419,7 +421,14 @@ export default function ChatSessionBody({
               className="flex-shrink-0 w-7 h-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
               title="Stop generation"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
             </Button>
           ) : (
             <Button
@@ -430,7 +439,16 @@ export default function ChatSessionBody({
               className="flex-shrink-0 w-7 h-7 disabled:opacity-30 text-text-secondary hover:text-accent hover:bg-hover/10"
               title="Send message"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <line x1="22" y1="2" x2="11" y2="13" />
                 <polygon points="22 2 15 22 11 13 2 9 22 2" />
               </svg>
@@ -497,13 +515,8 @@ function MessageGroup({
     const text = extractGroupText(group);
     if (!text) return null;
     return (
-      <details
-        open
-        className="text-xs text-text-secondary opacity-70"
-      >
-        <summary className="cursor-pointer italic select-none">
-          💭 Thinking…
-        </summary>
+      <details open className="text-xs text-text-secondary opacity-70">
+        <summary className="cursor-pointer select-none">Thinking</summary>
         <div className="mt-1 px-2 border-l-2 border-muted-foreground/30 pl-2 whitespace-pre-wrap text-xs">
           {text}
         </div>
@@ -658,7 +671,10 @@ function ToolCallAccordion({
             <code className="font-mono text-[11px] text-text-accent truncate">
               {title}
             </code>
-            <Badge variant={statusVariant} className="text-[10px] h-4 px-1.5 ml-auto shrink-0">
+            <Badge
+              variant={statusVariant}
+              className="text-[10px] h-4 px-1.5 ml-auto shrink-0"
+            >
               {status}
             </Badge>
           </div>
@@ -798,7 +814,9 @@ function PlansBlock({ group }: { group: any[] }) {
                 : "⬜"}
           </span>
           <span
-            className={item.status === "completed" ? "line-through opacity-50" : ""}
+            className={
+              item.status === "completed" ? "line-through opacity-50" : ""
+            }
           >
             {item.content || item.title || item.description}
           </span>
