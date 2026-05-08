@@ -149,9 +149,12 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 overflow-hidden bg-[var(--color-background-deeper)]"
-    />
+    <div className="relative h-full w-full">
+      <div
+        ref={containerRef}
+        className="absolute inset-0 overflow-hidden bg-[var(--color-background-deeper)]"
+      />
+      <div className="dot-overlay" />
+    </div>
   );
 }

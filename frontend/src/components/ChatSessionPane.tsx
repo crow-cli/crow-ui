@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
 import { math } from "@streamdown/math";
+import { MarkdownCode } from "./MarkdownCode";
 import "katex/dist/katex.min.css";
 
 import {
@@ -623,7 +623,11 @@ function MessageGroup({
           color: "var(--text-accent)",
         }}
       >
-        <Streamdown plugins={{ code, mermaid, math }} isAnimating={isStreaming}>
+        <Streamdown
+          plugins={{ mermaid, math }}
+          isAnimating={isStreaming}
+          components={{ code: MarkdownCode }}
+        >
           {text}
         </Streamdown>
       </div>

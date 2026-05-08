@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
 import { math } from "@streamdown/math";
+import { MarkdownCode } from "./MarkdownCode";
 import "katex/dist/katex.min.css";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 
@@ -339,7 +339,8 @@ export default function ChatPane({
   }, [notifications]);
 
   return (
-    <div data-testid="chat-pane" className="flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans bg-transparent">
+    <div data-testid="chat-pane" className="relative flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans bg-transparent">
+      <div className="dot-overlay" />
       <Header
         statusLabel={statusLabel}
         isReady={isReady}
@@ -543,7 +544,11 @@ function MessageGroup({
     if (!text) return null;
     return (
       <div className="w-full px-4 py-3 text-[13px] leading-relaxed text-text-primary">
-        <Streamdown plugins={{ code, mermaid, math }} isAnimating={isStreaming}>
+        <Streamdown
+          plugins={{ mermaid, math }}
+          isAnimating={isStreaming}
+          components={{ code: MarkdownCode }}
+        >
           {text}
         </Streamdown>
       </div>

@@ -4,9 +4,9 @@
  */
 
 import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
 import { math } from "@streamdown/math";
+import { MarkdownCode } from "./MarkdownCode";
 import "katex/dist/katex.min.css";
 
 // ─── WebFetchView ────────────────────────────────────────────────────────────
@@ -26,7 +26,10 @@ export function WebFetchView({ url, content }: WebFetchViewProps) {
         </span>
       </div>
       <div className="p-2 max-h-[300px] overflow-y-auto text-xs leading-relaxed text-[var(--color-foreground)]">
-        <Streamdown plugins={{ code, mermaid, math }}>
+        <Streamdown
+          plugins={{ mermaid, math }}
+          components={{ code: MarkdownCode }}
+        >
           {content}
         </Streamdown>
       </div>

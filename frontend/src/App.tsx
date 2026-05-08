@@ -128,8 +128,71 @@ export default function App() {
   const [modelJson, setModelJson] = useState<IJsonModel | null>(null);
 
   // Panel visibility for BottomBar toggles
-  const [terminalVisible, setTerminalVisible] = useState(true);
-  const [chatVisible, setChatVisible] = useState(true);
+  const [minimizedTabsets, setMinimizedTabsets] = useState<Set<string>>(new Set());
+
+  // Find all tabsets that contain tabs of a given component type
+  const findTabsetsByComponent = useCallback((component: string): string[] => {
+    const model = layoutModelRef.current;
+    if (!model) return [];
+    const ids: string[] = [];
+    model.visitNodes((node) => {
+      if (node.getType() === "tabset") {
+        const children = node.getChildren();
+        if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === component)) {
+          ids.push(node.getId());
+        }
+      }
+      return true;
+    });
+    return ids;
+  }, []);
+
+  // Count tabs of a given component type in minimized tabsets
+  const countMinimizedTabs = useCallback((component: string): number => {
+    const model = layoutModelRef.current;
+    if (!model) return 0;
+    let count = 0;
+    minimizedTabsets.forEach((tabsetId) => {
+      const node = model.getNodeById(tabsetId);
+      if (node && node.getType() === "tabset") {
+        const children = node.getChildren();
+        children.forEach((child) => {
+          if (child.getType() === "tab" && (child as TabNode).getComponent() === component) {
+            count++;
+          }
+        });
+      }
+    });
+    return count;
+  }, [minimizedTabsets]);
+
+  // Toggle minimize/restore for tabsets by component type
+  const toggleMinimize = useCallback((component: string) => {
+    const model = layoutModelRef.current;
+    if (!model) return;
+    const tabsetIds = findTabsetsByComponent(component);
+    if (tabsetIds.length === 0) return;
+
+    setMinimizedTabsets((prev) => {
+      const next = new Set(prev);
+      const allMinimized = tabsetIds.every((id) => next.has(id));
+
+      if (allMinimized) {
+        // Restore: remove size constraint
+        tabsetIds.forEach((id) => {
+          next.delete(id);
+          model.doAction(Actions.updateNodeAttributes(id, { maxHeight: 99999 }));
+        });
+      } else {
+        // Minimize: clamp to tiny height
+        tabsetIds.forEach((id) => {
+          next.add(id);
+          model.doAction(Actions.updateNodeAttributes(id, { maxHeight: 1 }));
+        });
+      }
+      return next;
+    });
+  }, [findTabsetsByComponent]);
 
   // Load agent config from JSON file
   useEffect(() => {
@@ -353,20 +416,64 @@ export default function App() {
       if (!layoutModelRef.current) return;
       const model = layoutModelRef.current;
       const termId = `term-${Date.now()}`;
-      model.doAction(
-        Actions.addTab(
-          {
-            type: "tab",
-            name: `Terminal ${termId.slice(-4)}`,
-            component: "terminal",
-            config: { terminalId: termId },
-            id: termId,
-          },
-          "terminal-tabset",
-          DockLocation.CENTER,
-          -1,
-        ),
-      );
+
+      // Find target tabset — existing terminal-tabset, any tabset with a terminal, or create new
+      let targetId = "terminal-tabset";
+      let targetNode = model.getNodeById(targetId);
+
+      if (!targetNode) {
+        model.visitNodes((node) => {
+          if (node.getType() === "tabset") {
+            const children = node.getChildren();
+            if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === "terminal")) {
+              targetNode = node;
+              return false;
+            }
+          }
+          return true;
+        });
+      }
+
+      if (targetNode) {
+        model.doAction(
+          Actions.addTab(
+            {
+              type: "tab",
+              name: `Terminal ${termId.slice(-4)}`,
+              component: "terminal",
+              config: { terminalId: termId },
+              id: termId,
+            },
+            targetNode.getId(),
+            DockLocation.CENTER,
+            -1,
+            true,
+          ),
+        );
+      } else {
+        // No terminal tabset exists — create one to the right of editor row
+        const editorTabset = model.getNodeById("editor-tabset");
+        if (editorTabset) {
+          const centerRow = editorTabset.getParent();
+          if (centerRow && centerRow.getType() === "row") {
+            model.doAction(
+              Actions.addNode(
+                {
+                  type: "tab",
+                  name: `Terminal ${termId.slice(-4)}`,
+                  component: "terminal",
+                  config: { terminalId: termId },
+                  id: termId,
+                },
+                centerRow.getId(),
+                DockLocation.RIGHT,
+                -1,
+                true,
+              ),
+            );
+          }
+        }
+      }
     });
 
     setGlobalOpenChat(() => {
@@ -523,13 +630,13 @@ export default function App() {
       if (ctrl && e.key === "`" && !isInput) {
         e.preventDefault();
         e.stopPropagation();
-        setTerminalVisible((v) => !v);
+        toggleMinimize("terminal");
         return;
       }
       if (ctrl && e.key === "l" && !isInput) {
         e.preventDefault();
         e.stopPropagation();
-        setChatVisible((v) => !v);
+        toggleMinimize("chat");
         return;
       }
       if (e.altKey && e.key === "z") {
@@ -555,32 +662,6 @@ export default function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, []);
-
-  // Ambient glow follows mouse
-  useEffect(() => {
-    const glow = document.getElementById("ambient-glow");
-    let glowTimeout: ReturnType<typeof setTimeout>;
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!glow) return;
-      glow.style.left = `${e.clientX}px`;
-      glow.style.top = `${e.clientY}px`;
-      glow.style.opacity = "1";
-      clearTimeout(glowTimeout);
-      glowTimeout = setTimeout(() => {
-        glow.style.opacity = "0";
-      }, 1000);
-    };
-    const handleMouseLeave = () => {
-      if (glow) glow.style.opacity = "0";
-    };
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseleave", handleMouseLeave);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseleave", handleMouseLeave);
-      clearTimeout(glowTimeout);
-    };
   }, []);
 
   // Listen for Monaco Ctrl+S custom event (save)
@@ -687,10 +768,10 @@ export default function App() {
           setSidebarVisible((v) => !v);
           break;
         case "toggle_terminal":
-          setTerminalVisible((v) => !v);
+          toggleMinimize("terminal");
           break;
         case "toggle_chat":
-          setChatVisible((v) => !v);
+          toggleMinimize("chat");
           break;
         case "word_wrap":
           setWordWrap((v) => {
@@ -1089,14 +1170,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-surface text-text-primary text-[13px] overflow-hidden font-sans relative antialiased selection:bg-violet-500/30 selection:text-white">
-      {/* Ambient Glow */}
-      <div
-        id="ambient-glow"
-        className="fixed w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(139,92,246,0.12)_0%,rgba(0,0,0,0)_70%)] rounded-full pointer-events-none z-0 transition-opacity duration-300 opacity-0"
-        style={{ transform: "translate(-50%, -50%)" }}
-      />
-
+    <div className="flex flex-col h-screen bg-transparent text-text-primary text-[13px] overflow-hidden font-sans relative antialiased selection:bg-violet-500/30 selection:text-white">
       <MenuBar
         items={menuItems}
         onAction={handleMenuAction}
@@ -1182,15 +1256,15 @@ export default function App() {
         lineEnding="LF"
         wordWrap={wordWrap}
         workspaceName={workspaceRoot?.split("/").pop() || ""}
-        onToggleEditors={() => {}}
-        onToggleTerminals={() => setTerminalVisible((v) => !v)}
-        onToggleChats={() => setChatVisible((v) => !v)}
-        editorsMinimized={false}
-        terminalsMinimized={false}
-        chatsMinimized={false}
-        editorTileCount={0}
-        terminalTileCount={0}
-        chatTileCount={0}
+        onToggleEditors={() => toggleMinimize("editor")}
+        onToggleTerminals={() => toggleMinimize("terminal")}
+        onToggleChats={() => toggleMinimize("chat")}
+        editorsMinimized={findTabsetsByComponent("editor").every((id) => minimizedTabsets.has(id)) && findTabsetsByComponent("editor").length > 0}
+        terminalsMinimized={findTabsetsByComponent("terminal").every((id) => minimizedTabsets.has(id)) && findTabsetsByComponent("terminal").length > 0}
+        chatsMinimized={findTabsetsByComponent("chat").every((id) => minimizedTabsets.has(id)) && findTabsetsByComponent("chat").length > 0}
+        editorTileCount={countMinimizedTabs("editor")}
+        terminalTileCount={countMinimizedTabs("terminal")}
+        chatTileCount={countMinimizedTabs("chat")}
       />
 
       <FolderPicker
