@@ -38,7 +38,19 @@ const modelRegistry = new Map<string, monaco.editor.ITextModel>();
 const openedDocuments = new Set<string>();
 
 const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
-  function EditorPane({ path, language, isActive, readOnly, height, wordWrap, onCursorChange, onDirtyChange }, ref) {
+  function EditorPane(
+    {
+      path,
+      language,
+      isActive,
+      readOnly,
+      height,
+      wordWrap,
+      onCursorChange,
+      onDirtyChange,
+    },
+    ref,
+  ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const onSaveCallbacks = useRef<(() => void)[]>([]);
@@ -87,7 +99,7 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
     useEffect(() => {
       if (!containerRef.current) return;
 
-      monaco.editor.defineTheme("murder-dark", {
+      monaco.editor.defineTheme("crow-ui-dark", {
         base: "vs-dark",
         inherit: true,
         rules: [],
@@ -118,7 +130,7 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
       const editor = monaco.editor.create(containerRef.current, {
         value: "",
         language,
-        theme: "murder-dark",
+        theme: "crow-ui-dark",
         automaticLayout: true,
         readOnly: readOnly || false,
         wordWrap: wordWrap ? "on" : "off",
@@ -143,18 +155,39 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
         suggest: {
           showStatusBar: !readOnly,
         },
-        quickSuggestions: settings.getIntellisenseOptions(language).noQuickSuggestions
+        quickSuggestions: settings.getIntellisenseOptions(language)
+          .noQuickSuggestions
           ? false
-          : (settings.getIntellisenseOptions(language).enabled ? { other: true, comments: false, strings: false } : false),
-        wordBasedSuggestions: settings.getIntellisenseOptions(language).noQuickSuggestions
+          : settings.getIntellisenseOptions(language).enabled
+            ? { other: true, comments: false, strings: false }
+            : false,
+        wordBasedSuggestions: settings.getIntellisenseOptions(language)
+          .noQuickSuggestions
           ? "off"
-          : (settings.getIntellisenseOptions(language).wordBasedSuggestions as "off" | "currentDocument" | "matchingDocuments" | "allDocuments"),
+          : (settings.getIntellisenseOptions(language).wordBasedSuggestions as
+              | "off"
+              | "currentDocument"
+              | "matchingDocuments"
+              | "allDocuments"),
         // Disable all suggestion triggers for prose languages
-        acceptSuggestionOnEnter: settings.getIntellisenseOptions(language).noQuickSuggestions ? "off" : "on",
-        acceptSuggestionOnCommitCharacter: !settings.getIntellisenseOptions(language).noQuickSuggestions,
-        suggestOnTriggerCharacters: settings.getIntellisenseOptions(language).suggestOnTriggerCharacters && !settings.getIntellisenseOptions(language).noQuickSuggestions,
-        tabCompletion: settings.getIntellisenseOptions(language).noQuickSuggestions ? "off" : "on",
-        parameterHints: { enabled: settings.getIntellisenseOptions(language).parameterHintsEnabled },
+        acceptSuggestionOnEnter: settings.getIntellisenseOptions(language)
+          .noQuickSuggestions
+          ? "off"
+          : "on",
+        acceptSuggestionOnCommitCharacter:
+          !settings.getIntellisenseOptions(language).noQuickSuggestions,
+        suggestOnTriggerCharacters:
+          settings.getIntellisenseOptions(language)
+            .suggestOnTriggerCharacters &&
+          !settings.getIntellisenseOptions(language).noQuickSuggestions,
+        tabCompletion: settings.getIntellisenseOptions(language)
+          .noQuickSuggestions
+          ? "off"
+          : "on",
+        parameterHints: {
+          enabled:
+            settings.getIntellisenseOptions(language).parameterHintsEnabled,
+        },
       });
 
       editorRef.current = editor;
@@ -178,23 +211,25 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
       const container = containerRef.current;
       const handleEditorKeydown = (e: KeyboardEvent) => {
         const ctrl = e.ctrlKey || e.metaKey;
-        if (ctrl && e.key === 's') {
+        if (ctrl && e.key === "s") {
           e.preventDefault();
           e.stopPropagation();
           for (const cb of onSaveCallbacks.current) cb();
         }
-        if (ctrl && e.key === 'w') {
+        if (ctrl && e.key === "w") {
           e.preventDefault();
           e.stopPropagation();
           window.dispatchEvent(
-            new CustomEvent("editor-close-tab", { detail: { path: pathRef.current } }),
+            new CustomEvent("editor-close-tab", {
+              detail: { path: pathRef.current },
+            }),
           );
         }
       };
-      container?.addEventListener('keydown', handleEditorKeydown, true);
+      container?.addEventListener("keydown", handleEditorKeydown, true);
 
       return () => {
-        container?.removeEventListener('keydown', handleEditorKeydown, true);
+        container?.removeEventListener("keydown", handleEditorKeydown, true);
         editor.dispose();
         // DO NOT dispose models here — they live in the registry for multi-tab/multi-session use.
         // Models are explicitly disposed via disposeModel() when a tab is closed.
@@ -280,7 +315,12 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
         });
       }
 
-      console.log("[EditorPane] setModel for", path, "content length:", model.getValueLength());
+      console.log(
+        "[EditorPane] setModel for",
+        path,
+        "content length:",
+        model.getValueLength(),
+      );
 
       // Force layout after setting model
       requestAnimationFrame(() => {
@@ -299,7 +339,13 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
       return () => disposable.dispose();
     }, [path, language]);
 
-    return <div ref={containerRef} className="absolute inset-0" style={height ? { height } : undefined} />;
+    return (
+      <div
+        ref={containerRef}
+        className="absolute inset-0"
+        style={height ? { height } : undefined}
+      />
+    );
   },
 );
 

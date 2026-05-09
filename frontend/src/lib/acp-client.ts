@@ -210,7 +210,7 @@ export class AcpClient {
     const initResponse = await this.connection.initialize({
       protocolVersion: 1,
       clientInfo: {
-        name: "murder-ide",
+        name: "crow-ui-ide",
         version: "0.1.0",
       },
       clientCapabilities: {
@@ -276,7 +276,10 @@ export class AcpClient {
     if (!this.connection || !this.sessionId) {
       throw new Error("Not connected");
     }
-    return this.connection.prompt({ sessionId: this.sessionId, prompt: blocks });
+    return this.connection.prompt({
+      sessionId: this.sessionId,
+      prompt: blocks,
+    });
   }
 
   /** Cancel the current prompt turn. */
@@ -382,7 +385,10 @@ export class AcpClient {
         const update = (params as any).update;
         if (update) {
           const stype = update.sessionUpdate || update.type;
-          if ((stype === "tool_call" || stype === "tool_call_update") && update.toolCallId) {
+          if (
+            (stype === "tool_call" || stype === "tool_call_update") &&
+            update.toolCallId
+          ) {
             this.recordToolCall(update.toolCallId, update.kind);
           }
         }
@@ -451,7 +457,10 @@ export class AcpClient {
           command: params.command,
           args: params.args || [],
           cwd: params.cwd || null,
-          env: (params.env || []).map((e) => ({ name: e.name, value: e.value })),
+          env: (params.env || []).map((e) => ({
+            name: e.name,
+            value: e.value,
+          })),
           outputByteLimit: params.outputByteLimit || null,
         });
         const terminalId = result.terminalId as string;

@@ -283,6 +283,211 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
+name = "crow-ui-acp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam",
+ "crow-ui-terminal",
+ "crow-ui-text",
+ "crow-ui-workspace",
+ "dashmap",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "crow-ui-db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 5.0.1",
+ "log",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "crow-ui-git"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "crow-ui-lsp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crow-ui-text",
+ "log",
+ "lsp-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "crow-ui-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "crossbeam",
+ "crow-ui-acp",
+ "crow-ui-db",
+ "crow-ui-terminal",
+ "crow-ui-text",
+ "crow-ui-workspace",
+ "dashmap",
+ "dirs 5.0.1",
+ "futures",
+ "mime_guess",
+ "notify",
+ "parking_lot",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "crow-ui-settings"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "notify",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "crow-ui-syntax"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.11.1",
+ "crow-ui-text",
+ "fancy-regex",
+ "log",
+ "once_cell",
+ "plist",
+ "regex",
+ "serde",
+ "serde_json",
+ "streaming-iterator",
+ "thiserror 2.0.18",
+ "tree-sitter",
+ "tree-sitter-rust",
+]
+
+[[package]]
+name = "crow-ui-terminal"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.11.1",
+ "crossbeam",
+ "dirs 6.0.0",
+ "libc",
+ "log",
+ "portable-pty",
+ "regex",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vte",
+ "which",
+]
+
+[[package]]
+name = "crow-ui-text"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "ropey",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "crow-ui-textmate"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "once_cell",
+ "onig",
+ "parking_lot",
+ "plist",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "crow-ui-theme"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "crow-ui-workspace"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dashmap",
+ "glob",
+ "globset",
+ "hex",
+ "ignore",
+ "log",
+ "memchr",
+ "notify",
+ "parking_lot",
+ "pathdiff",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "walkdir",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1037,211 +1242,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "murder-acp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crossbeam",
- "dashmap",
- "murder-terminal",
- "murder-text",
- "murder-workspace",
- "parking_lot",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "murder-db"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs 5.0.1",
- "log",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "murder-git"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "murder-lsp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "lsp-types",
- "murder-text",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "murder-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "crossbeam",
- "dashmap",
- "dirs 5.0.1",
- "futures",
- "mime_guess",
- "murder-acp",
- "murder-db",
- "murder-terminal",
- "murder-text",
- "murder-workspace",
- "notify",
- "parking_lot",
- "rust-embed",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite 0.26.2",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "murder-settings"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "notify",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "murder-syntax"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.11.1",
- "fancy-regex",
- "log",
- "murder-text",
- "once_cell",
- "plist",
- "regex",
- "serde",
- "serde_json",
- "streaming-iterator",
- "thiserror 2.0.18",
- "tree-sitter",
- "tree-sitter-rust",
-]
-
-[[package]]
-name = "murder-terminal"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.11.1",
- "crossbeam",
- "dirs 6.0.0",
- "libc",
- "log",
- "portable-pty",
- "regex",
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "vte",
- "which",
-]
-
-[[package]]
-name = "murder-text"
-version = "0.1.0"
-dependencies = [
- "encoding_rs",
- "ropey",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "unicode-segmentation",
-]
-
-[[package]]
-name = "murder-textmate"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "once_cell",
- "onig",
- "parking_lot",
- "plist",
- "pretty_assertions",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "murder-theme"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "murder-workspace"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dashmap",
- "glob",
- "globset",
- "hex",
- "ignore",
- "log",
- "memchr",
- "notify",
- "parking_lot",
- "pathdiff",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "walkdir",
 ]
 
 [[package]]

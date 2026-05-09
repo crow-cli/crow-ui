@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Build murder-ide Electron app
+# Build crow-ui-ide Electron app
 # Usage: ./build.sh [--release|--dev] [--dist]
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 IDE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BINARY="$IDE_DIR/target/release/murder-server"
+BINARY="$IDE_DIR/target/release/crow-ui-server"
 
 MODE="${1:---release}"
 DIST="${2}"
 
-echo "=== Building murder-ide Electron app ==="
+echo "=== Building crow-ui-ide Electron app ==="
 
 # 1. Build frontend
 echo "[1/4] Building frontend (Vite)..."
@@ -24,9 +24,9 @@ cd "$IDE_DIR"
 if [ ! -f "$BINARY" ]; then
     echo "  Building Rust backend (first time)..."
     if [ "$MODE" = "--dev" ]; then
-        cargo build --package murder-server
+        cargo build --package crow-ui-server
     else
-        cargo build --release --package murder-server -j $(nproc)
+        cargo build --release --package crow-ui-server -j $(nproc)
     fi
 else
     echo "  Binary exists, skipping rebuild. Run 'cargo build --release' to update."

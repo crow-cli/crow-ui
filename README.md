@@ -1,26 +1,26 @@
-crow-cli generated summary of murder-ide-v2
+crow-cli generated summary of crow-ui-ide-v2
 
-Alright, here's a good summary of what's going on with murder-ide-v2:
+Alright, here's a good summary of what's going on with crow-ui-ide-v2:
 High-Level Architecture
 
 It's a web-based IDE (VS Code-like) with a Rust backend + React frontend, communicating over WebSocket RPC.
-Backend (Rust — murder-server + workspace crates)
+Backend (Rust — crow-ui-server + workspace crates)
 
-    murder-server — Axum-based WebSocket server on port 3928. Handles IPC between frontend and all backend services.
-    murder-acp — Agent Client Protocol integration. Spawns agent subprocesses (like crow-cli acp) and bridges stdio to WebSocket.
-    murder-terminal — Manages PTY terminals via portable-pty, broadcasts events to WebSocket clients.
-    murder-workspace — File tree, file ops, search, file watching (notify).
-    murder-db — SQLite persistence (recent projects, window state, layout, KV storage, history).
-    murder-lsp — Language Server Protocol support.
-    murder-syntax / murder-textmate — Syntax highlighting via Tree-sitter + TextMate grammars.
-    murder-git — Git operations via gix.
-    murder-text — Rope-based text buffer.
-    murder-settings / murder-theme — IDE settings and theming.
+    crow-ui-server — Axum-based WebSocket server on port 3928. Handles IPC between frontend and all backend services.
+    crow-ui-acp — Agent Client Protocol integration. Spawns agent subprocesses (like crow-cli acp) and bridges stdio to WebSocket.
+    crow-ui-terminal — Manages PTY terminals via portable-pty, broadcasts events to WebSocket clients.
+    crow-ui-workspace — File tree, file ops, search, file watching (notify).
+    crow-ui-db — SQLite persistence (recent projects, window state, layout, KV storage, history).
+    crow-ui-lsp — Language Server Protocol support.
+    crow-ui-syntax / crow-ui-textmate — Syntax highlighting via Tree-sitter + TextMate grammars.
+    crow-ui-git — Git operations via gix.
+    crow-ui-text — Rope-based text buffer.
+    crow-ui-settings / crow-ui-theme — IDE settings and theming.
 
 Frontend (React + Vite + TypeScript)
 
     FlexLayout (flexlayout-react) — Tab/panel layout engine. The whole UI is a 3-panel layout: Explorer (left) → Editor + Terminal (center stack) → Agent Chat (right).
-    Monaco Editor — Code editor with a custom "murder-dark" theme. Models are cached in a registry so content survives tab switches.
+    Monaco Editor — Code editor with a custom "crow-ui-dark" theme. Models are cached in a registry so content survives tab switches.
     xterm.js — Terminal rendering.
     TipTap — Rich text editor for the chat message input (with @-mentions support per AGENTS.md learnings).
     Streamdown — Markdown rendering in chat (code blocks, math, mermaid).

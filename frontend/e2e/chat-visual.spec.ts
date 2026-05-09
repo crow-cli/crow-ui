@@ -1,12 +1,12 @@
 import { test, expect } from "@playwright/test";
 
-const BASE_URL = process.env.MURDER_URL || "http://localhost:3928";
+const BASE_URL = process.env.crow_ui_URL || "http://localhost:3928";
 
 /**
  * Visual regression tests for ChatPane cyberpunk styling.
  *
  * Prerequisites:
- *   - murder-server is running (auto-restores a workspace)
+ *   - crow-ui-server is running (auto-restores a workspace)
  *   - ACP agent may be disconnected (we inject fake content for visual testing)
  */
 

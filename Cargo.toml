@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-  "backend/crates/murder-text",
-  "backend/crates/murder-workspace",
-  "backend/crates/murder-acp",
-  "backend/crates/murder-lsp",
-  "backend/crates/murder-syntax",
-  "backend/crates/murder-git",
-  "backend/crates/murder-terminal",
-  "backend/crates/murder-settings",
-  "backend/crates/murder-theme",
-  "backend/crates/murder-textmate",
-  "backend/crates/murder-db",
-  "backend/crates/murder-server",
+  "backend/crates/crow-ui-text",
+  "backend/crates/crow-ui-workspace",
+  "backend/crates/crow-ui-acp",
+  "backend/crates/crow-ui-lsp",
+  "backend/crates/crow-ui-syntax",
+  "backend/crates/crow-ui-git",
+  "backend/crates/crow-ui-terminal",
+  "backend/crates/crow-ui-settings",
+  "backend/crates/crow-ui-theme",
+  "backend/crates/crow-ui-textmate",
+  "backend/crates/crow-ui-db",
+  "backend/crates/crow-ui-server",
 ]
 
 [workspace.package]
@@ -20,22 +20,22 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.81"
 license = "MIT"
-repository = "https://github.com/murder-ide/murder-ide"
+repository = "https://github.com/crow-cli/crow-ui"
 
 [workspace.dependencies]
 # Internal crates
-murder-text = { path = "backend/crates/murder-text" }
-murder-workspace = { path = "backend/crates/murder-workspace" }
-murder-lsp = { path = "backend/crates/murder-lsp" }
-murder-syntax = { path = "backend/crates/murder-syntax" }
-murder-git = { path = "backend/crates/murder-git" }
-murder-terminal = { path = "backend/crates/murder-terminal" }
-murder-settings = { path = "backend/crates/murder-settings" }
-murder-theme = { path = "backend/crates/murder-theme" }
-murder-textmate = { path = "backend/crates/murder-textmate" }
-murder-db = { path = "backend/crates/murder-db" }
-murder-server = { path = "backend/crates/murder-server" }
-murder-acp = { path = "backend/crates/murder-acp" }
+crow-ui-text = { path = "backend/crates/crow-ui-text" }
+crow-ui-workspace = { path = "backend/crates/crow-ui-workspace" }
+crow-ui-lsp = { path = "backend/crates/crow-ui-lsp" }
+crow-ui-syntax = { path = "backend/crates/crow-ui-syntax" }
+crow-ui-git = { path = "backend/crates/crow-ui-git" }
+crow-ui-terminal = { path = "backend/crates/crow-ui-terminal" }
+crow-ui-settings = { path = "backend/crates/crow-ui-settings" }
+crow-ui-theme = { path = "backend/crates/crow-ui-theme" }
+crow-ui-textmate = { path = "backend/crates/crow-ui-textmate" }
+crow-ui-db = { path = "backend/crates/crow-ui-db" }
+crow-ui-server = { path = "backend/crates/crow-ui-server" }
+crow-ui-acp = { path = "backend/crates/crow-ui-acp" }
 
 # Core
 tokio = { version = "1", features = ["full"] }

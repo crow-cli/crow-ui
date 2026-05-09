@@ -5,7 +5,7 @@ Wraps the Rust backend + React frontend as a desktop app using Electron.
 ## Architecture
 ```
 Electron Main Process (Node.js)
-    ├── spawns murder-server (Rust binary) as child process
+    ├── spawns crow-ui-server (Rust binary) as child process
     ├── waits for "Server listening on http://..." stdout
     └── opens BrowserWindow → http://127.0.0.1:<port>
 ```
@@ -14,40 +14,40 @@ Electron Main Process (Node.js)
 
 ### Prerequisites
 ```bash
-# From murder-ide root:
-cargo build --release --package murder-server    # builds the Rust backend
+# From crow-ui-ide root:
+cargo build --release --package crow-ui-server    # builds the Rust backend
 cd electron && npm install                       # installs Electron deps
 ```
 
 ### Dev mode (hot reload frontend, fixed port)
 ```bash
 # Terminal 1: Backend (fixed port 3928)
-cd murder-ide && cargo run --package murder-server
+cd crow-ui-ide && cargo run --package crow-ui-server
 
 # Terminal 2: Frontend (proxies to backend)
-cd murder-ide/frontend && npm run dev
+cd crow-ui-ide/frontend && npm run dev
 
 # Terminal 3: Electron (connects to dev server)
-cd murder-ide/electron && npm start
+cd crow-ui-ide/electron && npm start
 ```
 
 For dev mode, modify `electron/main.ts` to use `http://localhost:5173` instead of spawning the backend.
 
 ### Full build (embedded frontend + Rust binary)
 ```bash
-cd murder-ide/electron
+cd crow-ui-ide/electron
 ./build.sh --release          # builds everything, ready to run
 npm start                      # launches Electron app
 ```
 
 ### Package for distribution
 ```bash
-cd murder-ide/electron
+cd crow-ui-ide/electron
 ./build.sh --release --dist    # creates dist/ with AppImage/deb/dmg/nsis
 ```
 
 ## How Port Discovery Works
-1. Electron spawns `murder-server --port 0` (OS picks random ephemeral port)
+1. Electron spawns `crow-ui-server --port 0` (OS picks random ephemeral port)
 2. Server binds, logs `Server listening on http://0.0.0.0:XXXXX`
 3. Electron main process watches stdout, extracts port via regex
 4. Electron polls TCP until port is ready, then opens BrowserWindow

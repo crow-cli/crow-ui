@@ -8,12 +8,12 @@ let mainWindow: BrowserWindow | null = null;
 let backend: ChildProcess | null = null;
 let backendPort: number | null = null;
 
-/** Path to the murder-server binary. In dev: workspace root, in prod: bundled alongside app. */
+/** Path to the crow-ui-server binary. In dev: workspace root, in prod: bundled alongside app. */
 function getBackendPath(): string {
   if (app.isPackaged) {
     // In packaged app, binary is in resources/
     const resourcesPath = process.resourcesPath;
-    return path.join(resourcesPath, "murder-server");
+    return path.join(resourcesPath, "crow-ui-server");
   }
   // Dev mode: workspace root (relative to electron/ dir)
   return path.resolve(
@@ -22,7 +22,7 @@ function getBackendPath(): string {
     "..",
     "target",
     "release",
-    "murder-server",
+    "crow-ui-server",
   );
 }
 
@@ -49,9 +49,9 @@ function waitForPort(port: number, timeoutMs = 10000): Promise<void> {
   });
 }
 
-/** Extract port from Rust's readiness marker: __MURDER_SERVER_READY__ port=3928 */
+/** Extract port from Rust's readiness marker: __crow_ui_SERVER_READY__ port=3928 */
 function extractPort(line: string): number | null {
-  const match = line.match(/__MURDER_SERVER_READY__ port=(\d+)/);
+  const match = line.match(/__crow_ui_SERVER_READY__ port=(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
 
@@ -83,7 +83,7 @@ async function startBackend() {
   if (!fs.existsSync(binaryPath)) {
     dialog.showErrorBox(
       "Backend Not Found",
-      `Cannot find murder-server at:\n${binaryPath}\n\nBuild the release binary first:\ncargo build --release --package murder-server`,
+      `Cannot find crow-ui-server at:\n${binaryPath}\n\nBuild the release binary first:\ncargo build --release --package crow-ui-server`,
     );
     app.quit();
     return;
