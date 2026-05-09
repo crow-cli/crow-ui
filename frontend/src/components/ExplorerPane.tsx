@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ws } from "../lib/ws-client";
 import { FileIcon } from "../lib/file-icons";
 import ContextMenu from "./ContextMenu";
@@ -52,11 +52,34 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
     settings.getSettings().explorer.showHiddenFiles,
   );
 
+  // Explorer appearance settings (backend-driven)
+  const [explorerBg, setExplorerBg] = useState("#18181b");
+  const [explorerOpacity, setExplorerOpacity] = useState(0.7);
+
+  // Convert hex + opacity to rgba for cross-browser compatibility
+  const explorerBgRgba = useMemo(() => {
+    const hex = explorerBg.replace("#", "");
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${explorerOpacity})`;
+  }, [explorerBg, explorerOpacity]);
+
   useEffect(() => {
     const unsub = settings.subscribe(() => {
       setShowHiddenFiles(settings.getSettings().explorer.showHiddenFiles);
     });
     return unsub;
+  }, []);
+
+  // Fetch explorer appearance from backend on mount
+  useEffect(() => {
+    settings.getSetting<string>("explorer.backgroundColor", "#18181b").then((v) => {
+      if (v) setExplorerBg(v);
+    });
+    settings.getSetting<number>("explorer.backgroundOpacity", 0.7).then((v) => {
+      if (v !== undefined) setExplorerOpacity(v);
+    });
   }, []);
 
   // Reload tree when setting changes
@@ -483,7 +506,8 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
 
   return (
     <div
-      className="h-full flex flex-col bg-surface/70 backdrop-blur-md relative"
+      className="h-full flex flex-col relative"
+      style={{ backgroundColor: explorerBgRgba }}
       onContextMenu={handleRootContextMenu}
     >
       {/* File tree */}
