@@ -298,6 +298,10 @@ async fn handle_message(text: &str, app: &App) -> Value {
         "delete_tile_state" => handlers::handle_delete_tile_state(&state, &request.params),
         "clear_tile_states" => handlers::handle_clear_tile_states(&state, &request.params),
 
+        // Settings methods
+        "get_setting" => handlers::handle_get_setting(&state, &request.params),
+        "update_setting" => handlers::handle_update_setting(&state, &request.params),
+
         unknown => Err(format!("unknown method: {unknown}")),
     };
 

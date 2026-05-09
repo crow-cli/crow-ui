@@ -653,7 +653,7 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         setWordWrap((v) => {
-          settings.updateSetting("editor", "wordWrap", !v ? "on" : "off");
+          settings.updateLocalSetting("editor", "wordWrap", !v ? "on" : "off");
           return !v;
         });
         return;
@@ -784,7 +784,7 @@ export default function App() {
           break;
         case "word_wrap":
           setWordWrap((v) => {
-            settings.updateSetting("editor", "wordWrap", !v ? "on" : "off");
+            settings.updateLocalSetting("editor", "wordWrap", !v ? "on" : "off");
             return !v;
           });
           break;

@@ -5,6 +5,7 @@ use murder_db::Database;
 use murder_terminal::TerminalManager;
 use murder_text::TextModel;
 use murder_workspace::{Workspace, WorktreeState};
+use crate::settings_store::SettingsStore;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
@@ -28,6 +29,8 @@ pub struct AppState {
     /// SQLite database for session state (recent workspaces, layout, etc.).
     /// Wrapped in Mutex because rusqlite's Connection is !Sync.
     pub db: Mutex<Database>,
+    /// Simple persistent settings store (flat dot-notation keys).
+    pub settings: Mutex<SettingsStore>,
 }
 
 impl AppState {
@@ -35,6 +38,9 @@ impl AppState {
         let tm = TerminalManager::new();
         let worktree_events_tx = broadcast::Sender::new(256);
         let db = Database::open_default().expect("failed to open state database");
+        let settings_path = dirs::home_dir()
+            .map(|h| h.join(".crow").join("murder-settings.json"))
+            .unwrap_or_else(|| Path::new("murder-settings.json").to_path_buf());
         Self {
             documents: DashMap::new(),
             workspace: Mutex::new(None),
@@ -44,12 +50,16 @@ impl AppState {
             worktree_state: Mutex::new(WorktreeState::new(worktree_events_tx.clone())),
             worktree_events_tx,
             db: Mutex::new(db),
+            settings: Mutex::new(SettingsStore::load(&settings_path)),
         }
     }
 
     pub fn with_terminals(tm: TerminalManager, tx: broadcast::Sender<String>) -> Self {
         let worktree_events_tx = broadcast::Sender::new(256);
         let db = Database::open_default().expect("failed to open state database");
+        let settings_path = dirs::home_dir()
+            .map(|h| h.join(".crow").join("murder-settings.json"))
+            .unwrap_or_else(|| Path::new("murder-settings.json").to_path_buf());
         Self {
             documents: DashMap::new(),
             workspace: Mutex::new(None),
@@ -59,6 +69,7 @@ impl AppState {
             worktree_state: Mutex::new(WorktreeState::new(worktree_events_tx.clone())),
             worktree_events_tx,
             db: Mutex::new(db),
+            settings: Mutex::new(SettingsStore::load(&settings_path)),
         }
     }
 

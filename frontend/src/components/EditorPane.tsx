@@ -201,6 +201,18 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
       };
     }, []);
 
+    // Fetch editor.fontSize from backend settings and apply it
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor || readOnly) return;
+
+      settings.getSetting<number>("editor.fontSize", 14).then((size) => {
+        if (size !== undefined) {
+          editor.updateOptions({ fontSize: size });
+        }
+      });
+    }, []);
+
     // Register onSave callback
     useEffect(() => {
       const cb = () => {

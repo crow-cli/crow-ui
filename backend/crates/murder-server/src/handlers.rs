@@ -900,3 +900,26 @@ pub fn handle_clear_tile_states(state: &AppState, params: &Value) -> Result<Valu
         .map_err(|e| format!("failed to clear tile states: {e}"))?;
     Ok(json!({ "success": true }))
 }
+
+// ---------------------------------------------------------------------------
+// Settings handlers (flat dot-notation keys)
+// ---------------------------------------------------------------------------
+
+/// Get a single setting value by dot-notation key.
+pub fn handle_get_setting(state: &AppState, params: &Value) -> Result<Value, String> {
+    let key = params["key"].as_str().ok_or("missing 'key'")?;
+    let s = state.settings.lock();
+    match s.get(key) {
+        Some(v) => Ok(json!({ "value": v })),
+        None => Ok(json!({ "value": null })),
+    }
+}
+
+/// Update a single setting by dot-notation key and persist to disk.
+pub fn handle_update_setting(state: &AppState, params: &Value) -> Result<Value, String> {
+    let key = params["key"].as_str().ok_or("missing 'key'")?;
+    let value = params.get("value").ok_or("missing 'value'")?;
+    let mut s = state.settings.lock();
+    s.set(key, value.clone())?;
+    Ok(json!({ "success": true }))
+}

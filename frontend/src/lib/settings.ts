@@ -217,8 +217,33 @@ export async function saveSettings(): Promise<void> {
   await _writeSettings();
 }
 
-/** Update a nested setting and persist immediately */
-export async function updateSetting(
+/** Get a single setting value from the backend by dot-notation key.
+ *  Falls back to `defaultValue` if the key is not set.
+ */
+export async function getSetting<T>(key: string, defaultValue?: T): Promise<T | undefined> {
+  try {
+    const result = await ws.invoke<{ value: T | null }>("get_setting", { key });
+    return result.value !== null && result.value !== undefined ? result.value : defaultValue;
+  } catch (e) {
+    console.warn(`[settings] getSetting("${key}") failed:`, e);
+    return defaultValue;
+  }
+}
+
+/** Update a single setting by dot-notation key via the backend. */
+export async function updateSetting(key: string, value: unknown): Promise<void> {
+  try {
+    await ws.invoke("update_setting", { key, value });
+  } catch (e) {
+    console.error(`[settings] updateSetting("${key}") failed:`, e);
+    throw e;
+  }
+}
+
+/** Update a nested setting in the local settings object and persist immediately.
+ *  @deprecated Use `updateSetting(key, value)` for backend-driven settings.
+ */
+export async function updateLocalSetting(
   section: keyof IdeSettings,
   key: string,
   value: unknown,
