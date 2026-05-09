@@ -13,6 +13,7 @@ crow-ui-workspace = { workspace = true }
 crow-ui-terminal = { workspace = true }
 crow-ui-acp = { workspace = true }
 crow-ui-db = { workspace = true }
+crow-ui-settings = { workspace = true }
 
 tokio = { workspace = true }
 serde = { workspace = true }

@@ -902,24 +902,41 @@ pub fn handle_clear_tile_states(state: &AppState, params: &Value) -> Result<Valu
 }
 
 // ---------------------------------------------------------------------------
-// Settings handlers (flat dot-notation keys)
+// Settings handlers (backend-driven, flat keys internally, nested externally)
 // ---------------------------------------------------------------------------
+
+/// Return all resolved settings as a nested JSON object.
+pub fn handle_get_all_settings(state: &AppState, _params: &Value) -> Result<Value, String> {
+    let s = state.settings.lock();
+    Ok(s.to_nested())
+}
 
 /// Get a single setting value by dot-notation key.
 pub fn handle_get_setting(state: &AppState, params: &Value) -> Result<Value, String> {
     let key = params["key"].as_str().ok_or("missing 'key'")?;
     let s = state.settings.lock();
-    match s.get(key) {
+    match s.get_raw(key) {
         Some(v) => Ok(json!({ "value": v })),
         None => Ok(json!({ "value": null })),
     }
 }
 
-/// Update a single setting by dot-notation key and persist to disk.
+/// Update a single setting in the user layer, persist to disk, and broadcast.
 pub fn handle_update_setting(state: &AppState, params: &Value) -> Result<Value, String> {
     let key = params["key"].as_str().ok_or("missing 'key'")?;
     let value = params.get("value").ok_or("missing 'value'")?;
+
     let mut s = state.settings.lock();
-    s.set(key, value.clone())?;
+    s.set(key, value.clone());
+
+    // Persist to disk
+    let settings_path = dirs::home_dir()
+        .map(|h| h.join(".crow").join("crow-ui-settings.json"))
+        .unwrap_or_else(|| std::path::Path::new("crow-ui-settings.json").to_path_buf());
+    s.save_user(&settings_path).map_err(|e| format!("failed to save settings: {e}"))?;
+
+    // Broadcast change to all connected clients
+    let _ = state.settings_events_tx.send(key.to_owned());
+
     Ok(json!({ "success": true }))
 }

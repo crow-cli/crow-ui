@@ -1,7 +1,10 @@
 /**
- * IDE Settings — loaded from global `~/.crow/murder.json`
- * Supports JSONC (JSON with comments, trailing commas).
- * Auto-writes defaults on first run if file doesn't exist.
+ * IDE Settings — backend-driven via WebSocket APIs.
+ *
+ * All settings are stored server-side in ~/.crow/crow-ui-settings.json
+ * and fetched via `get_all_settings` / `get_setting` / `update_setting`.
+ * The frontend caches the resolved nested object and listens for
+ * `settings-changed` broadcasts to stay in sync.
  */
 
 import { ws } from "./ws-client";
@@ -103,135 +106,121 @@ const DEFAULT_SETTINGS: IdeSettings = {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
-let current: IdeSettings = structuredClone(DEFAULT_SETTINGS);
-let configPath: string | null = null;
+let cache: IdeSettings | null = null;
 const listeners = new Set<() => void>();
-
-export function getSettings(): IdeSettings {
-  return current;
-}
+let unsubscribeWs: (() => void) | null = null;
 
 function deepMerge(
   base: IdeSettings,
-  partial: Partial<IdeSettings>,
+  partial: Record<string, unknown>,
 ): IdeSettings {
-  const merged = structuredClone(base);
-  for (const key of Object.keys(partial) as (keyof IdeSettings)[]) {
+  const merged = structuredClone(base) as unknown as Record<string, unknown>;
+  for (const key of Object.keys(partial)) {
     const val = partial[key];
     if (val !== undefined) {
+      const existing = merged[key];
       if (
         val &&
         typeof val === "object" &&
         !Array.isArray(val) &&
-        typeof base[key] === "object" &&
-        !Array.isArray(base[key])
+        existing &&
+        typeof existing === "object" &&
+        !Array.isArray(existing)
       ) {
-        merged[key] = { ...(base[key] as object), ...val } as any;
+        merged[key] = deepMerge(
+          existing as IdeSettings,
+          val as Record<string, unknown>,
+        );
       } else {
-        merged[key] = val as any;
+        merged[key] = val;
       }
     }
   }
-  return merged;
+  return merged as unknown as IdeSettings;
 }
 
-function stripJsonc(text: string): string {
-  return text
-    .replace(/\/\/.*$/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/,\s*([}\]])/g, "$1");
-}
-
-function getDefaultJson(): string {
-  const {
-    editor,
-    languages,
-    intellisense,
-    terminal,
-    explorer,
-    folderPicker,
-  } = current;
-  const toSave = {
-    editor,
-    languages,
-    intellisense,
-    terminal,
-    explorer,
-    folderPicker,
-  };
-  return `// Murder IDE Settings — global config (~/.crow/murder.json)\n// JSONC format — comments and trailing commas supported\n\n${JSON.stringify(toSave, null, 2)}\n`;
-}
-
-/** Load settings, auto-write defaults if file doesn't exist */
-export async function loadSettings(): Promise<void> {
-  try {
-    const pathResult = await ws.invoke<{ path: string }>("get_config_path", {});
-    configPath = pathResult.path;
-  } catch {
-    configPath = null;
-    current = structuredClone(DEFAULT_SETTINGS);
-    for (const fn of listeners) fn();
-    return;
-  }
-
-  if (!configPath) {
-    current = structuredClone(DEFAULT_SETTINGS);
-    for (const fn of listeners) fn();
-    return;
-  }
-
-  try {
-    const result = await ws.invoke<{ content?: string }>("read_file", {
-      path: configPath,
-    });
-    if (result.content && result.content.trim()) {
-      const parsed = JSON.parse(
-        stripJsonc(result.content),
-      ) as Partial<IdeSettings>;
-      current = deepMerge(structuredClone(DEFAULT_SETTINGS), parsed);
-    } else {
-      // File exists but is empty — write defaults
-      current = structuredClone(DEFAULT_SETTINGS);
-      await _writeSettings();
+function getFromPath(obj: unknown, path: string): unknown {
+  return path.split(".").reduce((acc: unknown, part) => {
+    if (acc && typeof acc === "object" && !Array.isArray(acc)) {
+      return (acc as Record<string, unknown>)[part];
     }
-  } catch {
-    // File doesn't exist — write defaults
-    current = structuredClone(DEFAULT_SETTINGS);
-    await _writeSettings();
-  }
+    return undefined;
+  }, obj);
+}
+
+/** Notify all subscribers */
+function notify() {
   for (const fn of listeners) fn();
 }
 
-async function _writeSettings(): Promise<void> {
-  if (!configPath) return;
-  const jsonc = getDefaultJson();
+/** Initialize settings system: load from backend + subscribe to changes */
+export async function initSettings(): Promise<void> {
+  await loadSettings();
+
+  if (unsubscribeWs) unsubscribeWs();
+  unsubscribeWs = ws.onSettingsChange((key) => {
+    // Invalidate cache and reload so all consumers see the new value
+    cache = null;
+    loadSettings().catch((e) =>
+      console.warn("[settings] reload after change failed:", e),
+    );
+    notify();
+  });
+}
+
+/** Load all resolved settings from backend into local cache */
+export async function loadSettings(): Promise<void> {
   try {
-    await ws.invoke("write_file", { path: configPath, content: jsonc });
+    const nested = await ws.invoke<Record<string, unknown>>(
+      "get_all_settings",
+      {},
+    );
+    cache = deepMerge(structuredClone(DEFAULT_SETTINGS), nested);
   } catch (e) {
-    console.error("Failed to save settings:", e);
+    console.warn("[settings] loadSettings failed, using defaults:", e);
+    cache = structuredClone(DEFAULT_SETTINGS);
   }
+  notify();
 }
 
-/** Save current settings to disk */
-export async function saveSettings(): Promise<void> {
-  await _writeSettings();
+/** Get the full resolved settings object (from cache) */
+export function getSettings(): IdeSettings {
+  if (!cache) {
+    console.warn(
+      "[settings] getSettings called before load — returning defaults",
+    );
+    return structuredClone(DEFAULT_SETTINGS);
+  }
+  return cache;
 }
 
-/** Get a single setting value from the backend by dot-notation key.
+/** Get a single setting value by dot-notation key from the backend.
  *  Falls back to `defaultValue` if the key is not set.
  */
-export async function getSetting<T>(key: string, defaultValue?: T): Promise<T | undefined> {
+export async function getSetting<T>(
+  key: string,
+  defaultValue?: T,
+): Promise<T | undefined> {
   try {
-    const result = await ws.invoke<{ value: T | null }>("get_setting", { key });
-    return result.value !== null && result.value !== undefined ? result.value : defaultValue;
+    const result = await ws.invoke<{ value: T | null }>("get_setting", {
+      key,
+    });
+    return result.value !== null && result.value !== undefined
+      ? result.value
+      : defaultValue;
   } catch (e) {
     console.warn(`[settings] getSetting("${key}") failed:`, e);
     return defaultValue;
   }
 }
 
-/** Update a single setting by dot-notation key via the backend. */
-export async function updateSetting(key: string, value: unknown): Promise<void> {
+/** Update a single setting by dot-notation key via the backend.
+ *  The backend persists to disk and broadcasts `settings-changed`.
+ */
+export async function updateSetting(
+  key: string,
+  value: unknown,
+): Promise<void> {
   try {
     await ws.invoke("update_setting", { key, value });
   } catch (e) {
@@ -240,18 +229,23 @@ export async function updateSetting(key: string, value: unknown): Promise<void> 
   }
 }
 
-/** Update a nested setting in the local settings object and persist immediately.
- *  @deprecated Use `updateSetting(key, value)` for backend-driven settings.
+/** Update a nested setting in the local cache and persist via backend.
+ *  Automatically converts section+key to dot-notation.
  */
 export async function updateLocalSetting(
   section: keyof IdeSettings,
   key: string,
   value: unknown,
 ): Promise<void> {
-  const sec = current[section] as Record<string, unknown>;
-  if (sec) sec[key] = value;
-  await _writeSettings();
-  for (const fn of listeners) fn();
+  const dotKey = `${section}.${key}`;
+  await updateSetting(dotKey, value);
+
+  // Optimistically update cache
+  if (cache) {
+    const sec = cache[section] as Record<string, unknown>;
+    if (sec) sec[key] = value;
+    notify();
+  }
 }
 
 /** Add a directory to recently opened — delegates to backend SQLite */
@@ -279,7 +273,6 @@ export async function getRecentWorkspaces(limit = 10): Promise<string[]> {
 
 /** Clear recently opened list — delegates to backend SQLite */
 export async function clearRecentlyOpened(): Promise<void> {
-  // Not yet wired — would need a backend handler
   console.warn("clearRecentlyOpened not yet implemented for SQLite backend");
 }
 
@@ -289,12 +282,13 @@ export function subscribe(fn: () => void): () => void {
 }
 
 export function isIntellisenseDisabled(languageId: string): boolean {
-  if (!current.intellisense.enabled) return true;
-  return current.intellisense.disabledLanguages.includes(languageId);
+  const s = getSettings().intellisense;
+  if (!s.enabled) return true;
+  return s.disabledLanguages.includes(languageId);
 }
 
 export function getIntellisenseOptions(languageId: string) {
-  const s = current.intellisense;
+  const s = getSettings().intellisense;
   const disabled = isIntellisenseDisabled(languageId);
   const noQuickSuggestions = s.noQuickSuggestionsLanguages.includes(languageId);
   return {
@@ -312,17 +306,26 @@ export function getIntellisenseOptions(languageId: string) {
 }
 
 export function getConfigPath(): string | null {
-  return configPath;
+  return null; // No longer managed by frontend
 }
 
 export function getLanguageOverrides(
   languageId: string,
 ): Partial<EditorSettings> {
-  return current.languages[languageId] || {};
+  return getSettings().languages[languageId] || {};
 }
 
 export async function resetSettings(): Promise<void> {
-  current = structuredClone(DEFAULT_SETTINGS);
-  await _writeSettings();
-  for (const fn of listeners) fn();
+  // TODO: backend doesn't have a reset endpoint yet;
+  // for now clear user layer by setting each default key
+  const defaults = DEFAULT_SETTINGS;
+  for (const [section, values] of Object.entries(defaults)) {
+    for (const [key, value] of Object.entries(values as object)) {
+      await updateSetting(`${section}.${key}`, value);
+    }
+  }
+}
+
+export async function saveSettings(): Promise<void> {
+  // No-op — backend persists automatically on updateSetting
 }

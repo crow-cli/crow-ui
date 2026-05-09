@@ -509,6 +509,8 @@ fn add_explorer_defaults(m: &mut Map<String, Value>) {
     ins(m, "explorer.compactFolders", json!(true));
     ins(m, "explorer.fileNesting.enabled", json!(false));
     ins(m, "explorer.fileNesting.expand", json!(true));
+    ins(m, "explorer.backgroundColor", json!("#1e1e3f"));
+    ins(m, "explorer.backgroundOpacity", json!(1.0));
 }
 
 #[allow(clippy::too_many_lines)]

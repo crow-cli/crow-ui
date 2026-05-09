@@ -25,7 +25,7 @@ export interface EditorPaneHandle {
 
 // Monaco theme colors (Monaco API only — not React styles)
 const MONACO_THEME_COLORS = {
-  bg: "#1e1640",
+  bg: "#222244",
   text: "#d4c4ff",
   lineHighlight: "#2d2350",
   selection: "#4ade8033",

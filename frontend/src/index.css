@@ -5,7 +5,7 @@
 /* Diagonal crosshatch pattern on body background — guaranteed visible */
 body {
     background-color: #09090b;
-    /* background-image:
+    /*background-image:
         repeating-linear-gradient(
             45deg,
             transparent,
@@ -19,7 +19,7 @@ body {
             transparent 24px,
             rgba(139, 92, 246, 0.22) 24px,
             rgba(139, 92, 246, 0.22) 25px
-        ); */
+        );*/
 }
 
 /* Subtle noise overlay on top of grid */
@@ -51,36 +51,36 @@ body::after {
 
 @theme inline {
     /* Zinc Palette - Neutral base for a cleaner look */
-    --color-background: #09090b;   /* zinc-950 */
-    --color-surface: #18181b;      /* zinc-900 */
+    --color-background: #09090b; /* zinc-950 */
+    --color-surface: #222244; /* zinc-900 */
     --color-surface-elevated: #27272a; /* zinc-800 */
-    --color-hover: #27272a;        /* zinc-800 */
-    --color-input: #18181b;        /* zinc-900 */
-    --color-popover: #18181b;      /* zinc-900 */
-    --color-muted: #18181b;        /* zinc-900 */
-    --color-secondary: #27272a;    /* zinc-800 */
-    
+    --color-hover: #27272a; /* zinc-800 */
+    --color-input: #222244; /* zinc-900 */
+    --color-popover: #222244; /* zinc-900 */
+    --color-muted: #222244; /* zinc-900 */
+    --color-secondary: #27272a; /* zinc-800 */
+
     /* Borders - Subtle white for glass effect */
     --color-border: rgba(255, 255, 255, 0.08);
-    
+
     /* Accent - Violet */
-    --color-accent: #8b5cf6;       /* violet-500 */
+    --color-accent: #8b5cf6; /* violet-500 */
     --color-accent-faint: color-mix(in srgb, #8b5cf6 15%, transparent);
-    --color-ring: #a78bfa;         /* violet-400 */
-    
+    --color-ring: #a78bfa; /* violet-400 */
+
     /* Semantic */
-    --color-destructive: #ef4444;  /* red-500 */
-    --color-success: #22c55e;      /* green-500 */
-    --color-warning: #eab308;      /* yellow-500 */
-    --color-info: #3b82f6;         /* blue-500 */
-    
+    --color-destructive: #ef4444; /* red-500 */
+    --color-success: #22c55e; /* green-500 */
+    --color-warning: #eab308; /* yellow-500 */
+    --color-info: #3b82f6; /* blue-500 */
+
     /* Text - Zinc scale */
     --color-text-primary: #d4d4d8; /* zinc-300 */
     --color-text-secondary: #a1a1aa; /* zinc-400 */
     --color-text-tertiary: #71717a; /* zinc-500 */
-    --color-text-accent: #ffffff;  /* white — used by MenuBar, headings */
-    --color-heading: #ffffff;      /* white */
-    --color-foreground: #d4d4d8;   /* zinc-300 */
+    --color-text-accent: #ffffff; /* white — used by MenuBar, headings */
+    --color-heading: #ffffff; /* white */
+    --color-foreground: #d4d4d8; /* zinc-300 */
     --color-card-foreground: #d4d4d8;
     --color-popover-foreground: #d4d4d8;
     --color-primary-foreground: #ffffff;
@@ -88,27 +88,27 @@ body::after {
     --color-muted-foreground: #71717a;
     --color-accent-foreground: #ffffff;
     --color-destructive-foreground: #ffffff;
-    
+
     /* App-specific */
-    --color-active: #27272a;       /* zinc-800 */
+    --color-active: #27272a; /* zinc-800 */
     --color-statusbar-workspace: #27272a;
     --color-background-deeper: #09090b;
     --color-foreground-muted: #71717a;
     --color-foreground-dim: #52525b; /* zinc-600 */
-    --color-primary: #8b5cf6;      /* violet-500 */
+    --color-primary: #8b5cf6; /* violet-500 */
     --color-primary-faint: color-mix(in srgb, #8b5cf6 15%, transparent);
-    --color-background-dark: #18181b;
-    --color-card: #27272a;         /* zinc-800 */
-    
+    --color-background-dark: #222244;
+    --color-card: #27272a; /* zinc-800 */
+
     /* Terminal / Code Colors */
-    --color-blue: #60a5fa;         /* blue-400 */
-    --color-yellow: #facc15;       /* yellow-400 */
-    --color-red: #f87171;          /* red-400 */
-    --color-magenta: #c084fc;      /* purple-400 */
-    --color-cyan: #22d3ee;         /* cyan-400 */
+    --color-blue: #60a5fa; /* blue-400 */
+    --color-yellow: #facc15; /* yellow-400 */
+    --color-red: #f87171; /* red-400 */
+    --color-magenta: #c084fc; /* purple-400 */
+    --color-cyan: #22d3ee; /* cyan-400 */
     --color-white: #ffffff;
-    
-    --radius: 0.75rem;             /* rounded-xl */
+
+    --radius: 0.75rem; /* rounded-xl */
 }
 
 :root {
@@ -386,107 +386,107 @@ body {
 /* ── TipTap Editor Styles ────────────────────────────────────────────── */
 
 .ProseMirror {
-  outline: none;
-  min-height: 20px;
-  line-height: 1.5;
+    outline: none;
+    min-height: 20px;
+    line-height: 1.5;
 }
 
 .ProseMirror p {
-  margin: 0;
+    margin: 0;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
-  float: left;
-  color: #71717a;
-  pointer-events: none;
-  height: 0;
+    content: attr(data-placeholder);
+    float: left;
+    color: #71717a;
+    pointer-events: none;
+    height: 0;
 }
 
 .ProseMirror img {
-  max-width: 200px;
-  max-height: 150px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  display: inline-block;
-  vertical-align: middle;
+    max-width: 200px;
+    max-height: 150px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: inline-block;
+    vertical-align: middle;
 }
 
 /* Mention chip */
 .mention-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: #27273a;
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: 6px;
-  padding: 1px 6px;
-  font-size: 12px;
-  color: #a78bfa;
-  cursor: default;
-  vertical-align: middle;
-  margin: 0 1px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #27273a;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 12px;
+    color: #a78bfa;
+    cursor: default;
+    vertical-align: middle;
+    margin: 0 1px;
 }
 
 .mention-chip .mention-icon {
-  font-size: 11px;
+    font-size: 11px;
 }
 
 .mention-chip .mention-label {
-  font-weight: 500;
+    font-weight: 500;
 }
 
 /* Suggestion popup */
 .suggestions-popup {
-  background: #1e1e2e;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-  max-height: 280px;
-  overflow-y: auto;
-  min-width: 220px;
+    background: #1e1e2e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    max-height: 280px;
+    overflow-y: auto;
+    min-width: 220px;
 }
 
 .suggestion-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 12px;
-  color: #a1a1aa;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #a1a1aa;
 }
 
 .suggestion-item:hover,
 .suggestion-item.is-selected {
-  background: #27272a;
-  color: #fff;
+    background: #27272a;
+    color: #fff;
 }
 
 .suggestion-item .suggestion-icon {
-  width: 18px;
-  text-align: center;
-  font-size: 13px;
+    width: 18px;
+    text-align: center;
+    font-size: 13px;
 }
 
 .suggestion-item .suggestion-label {
-  font-weight: 500;
+    font-weight: 500;
 }
 
 .suggestion-item .suggestion-desc {
-  margin-left: auto;
-  font-size: 10px;
-  color: #71717a;
+    margin-left: auto;
+    font-size: 10px;
+    color: #71717a;
 }
 
 .suggestion-category {
-  padding: 4px 12px 2px;
-  font-size: 10px;
-  font-weight: 600;
-  color: #71717a;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+    padding: 4px 12px 2px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #71717a;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 /* ── Streamdown / Markdown HUD Styling ─────────────────────────────────── */
@@ -495,8 +495,8 @@ body {
 .chat-messages .markdown-body,
 .chat-messages [class*="markdown"],
 .chat-messages [class*="streamdown"] {
-  color: #d4d4d8;
-  line-height: 1.7;
+    color: #d4d4d8;
+    line-height: 1.7;
 }
 
 /* Headings — neon underlines, tracking wide */
@@ -504,218 +504,226 @@ body {
 .chat-messages h2,
 .chat-messages h3,
 .chat-messages h4 {
-  color: #ffffff;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  margin-top: 1.2em;
-  margin-bottom: 0.6em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+    color: #ffffff;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-top: 1.2em;
+    margin-bottom: 0.6em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid rgba(139, 92, 246, 0.2);
 }
 
 .chat-messages h1 {
-  font-size: 1.3em;
-  border-bottom: 1px solid rgba(139, 92, 246, 0.3);
-  text-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+    font-size: 1.3em;
+    border-bottom: 1px solid rgba(139, 92, 246, 0.3);
+    text-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
 }
 
 .chat-messages h2 {
-  font-size: 1.15em;
+    font-size: 1.15em;
 }
 
 .chat-messages h3 {
-  font-size: 1.05em;
-  color: #e4e4e7;
+    font-size: 1.05em;
+    color: #e4e4e7;
 }
 
 /* Paragraphs */
 .chat-messages p {
-  margin-bottom: 0.8em;
+    margin-bottom: 0.8em;
 }
 
 /* Links — violet glow */
 .chat-messages a {
-  color: #c084fc;
-  text-decoration: none;
-  border-bottom: 1px solid rgba(192, 132, 252, 0.3);
-  transition: all 0.15s ease;
+    color: #c084fc;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(192, 132, 252, 0.3);
+    transition: all 0.15s ease;
 }
 
 .chat-messages a:hover {
-  color: #d8b4fe;
-  border-bottom-color: rgba(192, 132, 252, 0.6);
-  text-shadow: 0 0 8px rgba(192, 132, 252, 0.3);
+    color: #d8b4fe;
+    border-bottom-color: rgba(192, 132, 252, 0.6);
+    text-shadow: 0 0 8px rgba(192, 132, 252, 0.3);
 }
 
 /* Code blocks — glassmorphism + neon border */
 .chat-messages pre {
-  background: rgba(13, 10, 26, 0.7) !important;
-  border: 1px solid rgba(139, 92, 246, 0.12);
-  border-radius: 0.5rem;
-  padding: 1em;
-  margin: 0.8em 0;
-  overflow-x: auto;
-  max-width: 100%;
-  backdrop-filter: blur(8px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 4px 16px rgba(0, 0, 0, 0.3);
+    background: rgba(13, 10, 26, 0.7) !important;
+    border: 1px solid rgba(139, 92, 246, 0.12);
+    border-radius: 0.5rem;
+    padding: 1em;
+    margin: 0.8em 0;
+    overflow-x: auto;
+    max-width: 100%;
+    backdrop-filter: blur(8px);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .chat-messages pre > code {
-  display: block;
-  max-width: 100%;
+    display: block;
+    max-width: 100%;
 }
 
 .chat-messages pre code {
-  background: transparent !important;
-  border: none !important;
-  padding: 0 !important;
-  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #d4c4ff;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #d4c4ff;
 }
 
 /* Inline code */
 .chat-messages code:not(pre code) {
-  background: rgba(139, 92, 246, 0.08);
-  border: 1px solid rgba(139, 92, 246, 0.15);
-  border-radius: 0.3rem;
-  padding: 0.15em 0.4em;
-  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
-  font-size: 0.9em;
-  color: #c084fc;
+    background: rgba(139, 92, 246, 0.08);
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    border-radius: 0.3rem;
+    padding: 0.15em 0.4em;
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.9em;
+    color: #c084fc;
 }
 
 /* Blockquotes — left accent bar */
 .chat-messages blockquote {
-  margin: 0.8em 0;
-  padding: 0.5em 1em;
-  border-left: 2px solid rgba(139, 92, 246, 0.4);
-  background: rgba(139, 92, 246, 0.03);
-  border-radius: 0 0.5rem 0.5rem 0;
-  color: #a1a1aa;
-  font-style: italic;
+    margin: 0.8em 0;
+    padding: 0.5em 1em;
+    border-left: 2px solid rgba(139, 92, 246, 0.4);
+    background: rgba(139, 92, 246, 0.03);
+    border-radius: 0 0.5rem 0.5rem 0;
+    color: #a1a1aa;
+    font-style: italic;
 }
 
 /* Lists */
 .chat-messages ul,
 .chat-messages ol {
-  margin: 0.6em 0;
-  padding-left: 1.4em;
+    margin: 0.6em 0;
+    padding-left: 1.4em;
 }
 
 .chat-messages li {
-  margin-bottom: 0.3em;
+    margin-bottom: 0.3em;
 }
 
 .chat-messages ul li::marker {
-  color: rgba(139, 92, 246, 0.5);
+    color: rgba(139, 92, 246, 0.5);
 }
 
 /* Horizontal rule — gradient glow */
 .chat-messages hr {
-  border: none;
-  height: 1px;
-  margin: 1.2em 0;
-  background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.3), transparent);
+    border: none;
+    height: 1px;
+    margin: 1.2em 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(139, 92, 246, 0.3),
+        transparent
+    );
 }
 
 /* Tables */
 .chat-messages table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0.8em 0;
-  font-size: 12px;
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.8em 0;
+    font-size: 12px;
 }
 
 .chat-messages th {
-  background: rgba(139, 92, 246, 0.08);
-  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
-  padding: 0.5em 0.75em;
-  text-align: left;
-  font-weight: 600;
-  color: #e4e4e7;
+    background: rgba(139, 92, 246, 0.08);
+    border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+    padding: 0.5em 0.75em;
+    text-align: left;
+    font-weight: 600;
+    color: #e4e4e7;
 }
 
 .chat-messages td {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  padding: 0.4em 0.75em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 0.4em 0.75em;
 }
 
 .chat-messages tr:hover td {
-  background: rgba(139, 92, 246, 0.03);
+    background: rgba(139, 92, 246, 0.03);
 }
 
 /* Selection in chat */
 .chat-messages ::selection {
-  background: rgba(139, 92, 246, 0.25);
-  color: #ffffff;
+    background: rgba(139, 92, 246, 0.25);
+    color: #ffffff;
 }
 
 /* Streamdown code blocks — tight cyberpunk glass styling */
 [data-streamdown="code-block"] {
-  background: rgba(13, 10, 26, 0.75) !important;
-  border: 1px solid rgba(139, 92, 246, 0.15) !important;
-  border-radius: 0.5rem !important;
-  margin: 0.5em 0 !important;
-  padding: 0.25rem !important;
-  gap: 0.25rem !important;
-  backdrop-filter: blur(8px) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    background: rgba(13, 10, 26, 0.75) !important;
+    border: 1px solid rgba(139, 92, 246, 0.15) !important;
+    border-radius: 0.5rem !important;
+    margin: 0.5em 0 !important;
+    padding: 0.25rem !important;
+    gap: 0.25rem !important;
+    backdrop-filter: blur(8px) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 4px 16px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Streamdown code block header — compact */
 [data-streamdown="code-block-header"] {
-  height: 22px !important;
-  min-height: 22px !important;
-  padding: 0 0.25rem !important;
-  font-size: 10px !important;
-  color: rgba(139, 92, 246, 0.6) !important;
+    height: 22px !important;
+    min-height: 22px !important;
+    padding: 0 0.25rem !important;
+    font-size: 10px !important;
+    color: rgba(139, 92, 246, 0.6) !important;
 }
 
 /* Streamdown code block body — less padding */
 [data-streamdown="code-block-body"] {
-  padding: 0.5rem !important;
-  border-radius: 0.35rem !important;
+    padding: 0.5rem !important;
+    border-radius: 0.35rem !important;
 }
 
 /* Streamdown code block copy button */
 [data-streamdown="code-block"] button {
-  background: rgba(139, 92, 246, 0.1) !important;
-  border: 1px solid rgba(139, 92, 246, 0.2) !important;
-  color: #c084fc !important;
-  border-radius: 0.35rem !important;
-  padding: 0.25rem 0.5rem !important;
-  font-size: 11px !important;
-  transition: all 0.15s ease !important;
+    background: rgba(139, 92, 246, 0.1) !important;
+    border: 1px solid rgba(139, 92, 246, 0.2) !important;
+    color: #c084fc !important;
+    border-radius: 0.35rem !important;
+    padding: 0.25rem 0.5rem !important;
+    font-size: 11px !important;
+    transition: all 0.15s ease !important;
 }
 
 [data-streamdown="code-block"] button:hover {
-  background: rgba(139, 92, 246, 0.2) !important;
-  border-color: rgba(139, 92, 246, 0.4) !important;
-  color: #d8b4fe !important;
+    background: rgba(139, 92, 246, 0.2) !important;
+    border-color: rgba(139, 92, 246, 0.4) !important;
+    color: #d8b4fe !important;
 }
 
 /* Streamdown inline code */
 [data-streamdown="inline-code"] {
-  background: rgba(139, 92, 246, 0.08) !important;
-  border: 1px solid rgba(139, 92, 246, 0.15) !important;
-  border-radius: 0.3rem !important;
-  padding: 0.15em 0.4em !important;
-  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace !important;
-  font-size: 0.9em !important;
-  color: #c084fc !important;
+    background: rgba(139, 92, 246, 0.08) !important;
+    border: 1px solid rgba(139, 92, 246, 0.15) !important;
+    border-radius: 0.3rem !important;
+    padding: 0.15em 0.4em !important;
+    font-family:
+        "JetBrains Mono", "Fira Code", "Cascadia Code", monospace !important;
+    font-size: 0.9em !important;
+    color: #c084fc !important;
 }
 
 /* Tippy dark theme override */
 .tippy-box[data-theme~="dark"] {
-  background: transparent;
-  border: none;
-  box-shadow: none;
+    background: transparent;
+    border: none;
+    box-shadow: none;
 }
 
 .tippy-box[data-theme~="dark"] .tippy-content {
-  padding: 0;
+    padding: 0;
 }

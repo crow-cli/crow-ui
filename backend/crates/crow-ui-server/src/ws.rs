@@ -88,6 +88,12 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
         state.worktree_events_tx.subscribe()
     };
 
+    // Subscribe to settings change broadcasts
+    let mut settings_rx = {
+        let state = app.lock().await;
+        state.settings_events_tx.subscribe()
+    };
+
     loop {
         tokio::select! {
             // Incoming WebSocket message
@@ -198,6 +204,27 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
                     }
                 }
             }
+            // Settings change event from broadcast
+            settings_event = settings_rx.recv() => {
+                match settings_event {
+                    Ok(key) => {
+                        let notification = WsNotification {
+                            method: "settings-changed".into(),
+                            params: serde_json::json!({ "key": key }),
+                        };
+                        if let Ok(json) = serde_json::to_string(&notification) {
+                            if let Err(e) = socket.send(Message::Text(json)).await {
+                                tracing::warn!("Failed to push settings event: {e}");
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
         }
     }
 }
@@ -299,6 +326,7 @@ async fn handle_message(text: &str, app: &App) -> Value {
         "clear_tile_states" => handlers::handle_clear_tile_states(&state, &request.params),
 
         // Settings methods
+        "get_all_settings" => handlers::handle_get_all_settings(&state, &request.params),
         "get_setting" => handlers::handle_get_setting(&state, &request.params),
         "update_setting" => handlers::handle_update_setting(&state, &request.params),
 

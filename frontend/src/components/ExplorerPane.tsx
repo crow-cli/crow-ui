@@ -38,7 +38,9 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // Inline create (new file/folder) state
-  const [creatingParentPath, setCreatingParentPath] = useState<string | null>(null);
+  const [creatingParentPath, setCreatingParentPath] = useState<string | null>(
+    null,
+  );
   const [creatingName, setCreatingName] = useState("");
   const [creatingIsDir, setCreatingIsDir] = useState(false);
   const createInputRef = useRef<HTMLInputElement>(null);
@@ -52,11 +54,17 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
     settings.getSettings().explorer.showHiddenFiles,
   );
 
+  useEffect(() => {
+    const unsub = settings.subscribe(() => {
+      setShowHiddenFiles(settings.getSettings().explorer.showHiddenFiles);
+    });
+    return unsub;
+  }, []);
+
   // Explorer appearance settings (backend-driven)
   const [explorerBg, setExplorerBg] = useState("#18181b");
-  const [explorerOpacity, setExplorerOpacity] = useState(0.7);
+  const [explorerOpacity, setExplorerOpacity] = useState(1.0);
 
-  // Convert hex + opacity to rgba for cross-browser compatibility
   const explorerBgRgba = useMemo(() => {
     const hex = explorerBg.replace("#", "");
     const r = parseInt(hex.substring(0, 2), 16);
@@ -66,18 +74,10 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
   }, [explorerBg, explorerOpacity]);
 
   useEffect(() => {
-    const unsub = settings.subscribe(() => {
-      setShowHiddenFiles(settings.getSettings().explorer.showHiddenFiles);
-    });
-    return unsub;
-  }, []);
-
-  // Fetch explorer appearance from backend on mount
-  useEffect(() => {
-    settings.getSetting<string>("explorer.backgroundColor", "#18181b").then((v) => {
+    settings.getSetting<string>("explorer.backgroundColor").then((v) => {
       if (v) setExplorerBg(v);
     });
-    settings.getSetting<number>("explorer.backgroundOpacity", 0.7).then((v) => {
+    settings.getSetting<number>("explorer.backgroundOpacity").then((v) => {
       if (v !== undefined) setExplorerOpacity(v);
     });
   }, []);
@@ -90,10 +90,13 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHiddenFiles]);
 
-  const isHidden = (name: string): boolean => name.startsWith(".") && name !== "." && name !== "..";
+  const isHidden = (name: string): boolean =>
+    name.startsWith(".") && name !== "." && name !== "..";
 
   const sortEntries = (items: FileEntry[]): FileEntry[] => {
-    let filtered = showHiddenFiles ? items : items.filter((e) => !isHidden(e.name));
+    let filtered = showHiddenFiles
+      ? items
+      : items.filter((e) => !isHidden(e.name));
     return [...filtered].sort((a, b) => {
       if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
       return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
@@ -104,7 +107,10 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
     const handleWorktreeEvent = (e: MessageEvent) => {
       try {
         const msg = JSON.parse(e.data);
-        if (msg.method === "worktree-file-created" || msg.method === "worktree-file-deleted") {
+        if (
+          msg.method === "worktree-file-created" ||
+          msg.method === "worktree-file-deleted"
+        ) {
           // Only refresh on structural changes, not content edits
           // Invalidate cache for the parent of the changed file
           if (msg.params?.path) {
@@ -185,7 +191,12 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, targetPath: path, targetIsDir: isDir });
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      targetPath: path,
+      targetIsDir: isDir,
+    });
   };
 
   const handleRootContextMenu = (e: React.MouseEvent) => {
@@ -251,7 +262,9 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
       setChildCache(new Map());
       loadDir(root);
     } catch (e: any) {
-      alert(`Failed to create ${isDir ? "directory" : "file"}: ${e.message || e}`);
+      alert(
+        `Failed to create ${isDir ? "directory" : "file"}: ${e.message || e}`,
+      );
     }
   };
 
@@ -390,11 +403,21 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
   // ── Rendering ──────────────────────────────────────────────────────────
 
   /** Render the inline create input as a tree item */
-  const renderCreateInput = (depth: number, key: string): React.ReactElement => (
+  const renderCreateInput = (
+    depth: number,
+    key: string,
+  ): React.ReactElement => (
     <div
       key={key}
       className="flex items-center gap-1.5 text-text-primary bg-hover rounded-sm"
-      style={{ paddingLeft: 8 + depth * 16, paddingRight: 8, paddingTop: 4, paddingBottom: 4, fontSize: 13, height: 28 }}
+      style={{
+        paddingLeft: 8 + depth * 16,
+        paddingRight: 8,
+        paddingTop: 4,
+        paddingBottom: 4,
+        fontSize: 13,
+        height: 28,
+      }}
     >
       <span className="w-4 text-center text-[10px] text-text-secondary flex-shrink-0">
         {creatingIsDir ? "" : "📄"}
@@ -416,12 +439,20 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
   );
 
   /** Render entries for a given parent path, with create input injected */
-  const renderEntries = (parentPath: string, children: FileEntry[], depth: number): React.ReactElement[] => {
+  const renderEntries = (
+    parentPath: string,
+    children: FileEntry[],
+    depth: number,
+  ): React.ReactElement[] => {
     const items: React.ReactElement[] = [];
     for (const child of children) {
       items.push(renderItem(child, depth));
       // If this child is the parent we're creating under, insert the create input after it
-      if (creatingParentPath === child.path && child.is_dir && expandedDirs.has(child.path)) {
+      if (
+        creatingParentPath === child.path &&
+        child.is_dir &&
+        expandedDirs.has(child.path)
+      ) {
         items.push(renderCreateInput(depth + 1, `create-${child.path}`));
       }
     }
@@ -445,11 +476,16 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
           }
           onContextMenu={(e) => handleContextMenu(e, entry.path, entry.is_dir)}
           className="cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors text-text-primary"
-          style={{ paddingLeft: 8 + depth * 16, paddingRight: 8, paddingTop: 4, paddingBottom: 4, fontSize: 13, height: 28 }}
+          style={{
+            paddingLeft: 8 + depth * 16,
+            paddingRight: 8,
+            paddingTop: 4,
+            paddingBottom: 4,
+            fontSize: 13,
+            height: 28,
+          }}
         >
-          <span
-            className="w-4 text-center text-[10px] text-text-secondary flex-shrink-0"
-          >
+          <span className="w-4 text-center text-[10px] text-text-secondary flex-shrink-0">
             {entry.is_dir ? (expandedDirs.has(entry.path) ? "▾" : "▸") : "  "}
           </span>
           <FileIcon name={entry.name} isDir={entry.is_dir} size={14} />
@@ -476,7 +512,11 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
           expandedDirs.has(entry.path) &&
           childCache.has(entry.path) && (
             <div>
-              {renderEntries(entry.path, childCache.get(entry.path)!, depth + 1)}
+              {renderEntries(
+                entry.path,
+                childCache.get(entry.path)!,
+                depth + 1,
+              )}
             </div>
           )}
       </div>
@@ -523,17 +563,25 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
         />
       )}
       {deletingPath && (
-        <div
-          className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-destructive/15 border-t border-border flex items-center gap-2 text-sm text-text-primary z-10"
-        >
+        <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-destructive/15 border-t border-border flex items-center gap-2 text-sm text-text-primary z-10">
           <span className="text-destructive font-semibold">⚠ Delete</span>
           <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
             "{deletingName}"
           </span>
-          <Button variant="outline" size="sm" onClick={handleDeleteCancel} className="h-6 text-[11px] px-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDeleteCancel}
+            className="h-6 text-[11px] px-2"
+          >
             Cancel
           </Button>
-          <Button variant="destructive" size="sm" onClick={handleDeleteConfirm} className="h-6 text-[11px] px-2 font-semibold">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDeleteConfirm}
+            className="h-6 text-[11px] px-2 font-semibold"
+          >
             Delete
           </Button>
         </div>

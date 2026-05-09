@@ -213,16 +213,7 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Load global IDE settings at startup
-  useEffect(() => {
-    settings.loadSettings().then(() => {
-      setWordWrap(settings.getSettings().editor.wordWrap === "on");
-    });
-    // Subscribe so word wrap updates when settings change
-    return settings.subscribe(() => {
-      setWordWrap(settings.getSettings().editor.wordWrap === "on");
-    });
-  }, []);
+  // Note: settings are loaded after WebSocket connects (see below)
 
   const activeFileRef = useRef(activeFile);
   const dirtyFilesRef = useRef(dirtyFiles);
@@ -262,7 +253,7 @@ export default function App() {
   // Load settings after connection
   useEffect(() => {
     if (!connected) return;
-    settings.loadSettings().then(() => {
+    settings.initSettings().then(() => {
       setWordWrap(settings.getSettings().editor.wordWrap === "on");
     });
     return settings.subscribe(() => {

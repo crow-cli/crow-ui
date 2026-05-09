@@ -349,6 +349,7 @@ dependencies = [
  "crossbeam",
  "crow-ui-acp",
  "crow-ui-db",
+ "crow-ui-settings",
  "crow-ui-terminal",
  "crow-ui-text",
  "crow-ui-workspace",

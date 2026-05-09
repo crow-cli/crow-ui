@@ -121,6 +121,45 @@ impl Settings {
         }
     }
 
+    /// Persist the user layer to disk as JSONC.
+    pub fn save_user(&self, path: &Path) -> Result<()> {
+        let nested = self.to_nested();
+        let jsonc = crate::jsonc::format_jsonc(&nested, 2);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(path, jsonc).context("failed to write user settings")
+    }
+
+    /// Return all resolved settings as a nested JSON object.
+    /// Merges workspace → user → default layers, then unflattens.
+    pub fn to_nested(&self) -> Value {
+        let merged = self.merge_all();
+        unflatten_value(&merged)
+    }
+
+    /// Return all resolved settings as a flat JSON object.
+    pub fn to_flat(&self) -> Value {
+        self.merge_all()
+    }
+
+    fn merge_all(&self) -> Value {
+        let mut merged = self.default_layer.clone();
+        if let Value::Object(ref mut map) = merged {
+            if let Value::Object(user) = &self.user_layer {
+                for (k, v) in user {
+                    map.insert(k.clone(), v.clone());
+                }
+            }
+            if let Value::Object(ws) = &self.workspace_layer {
+                for (k, v) in ws {
+                    map.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        merged
+    }
+
     /// Register a callback that fires when the effective value of `key`
     /// changes.
     pub fn on_change<F>(&mut self, key: &str, handler: F)
@@ -136,7 +175,22 @@ impl Settings {
     // ── Internal helpers ─────────────────────────────────────────────────
 
     fn lookup<'a>(layer: &'a Value, key: &str) -> Option<&'a Value> {
-        layer.as_object()?.get(key)
+        let obj = layer.as_object()?;
+        // Try flat lookup first (e.g. "editor.fontSize")
+        if let Some(v) = obj.get(key) {
+            return Some(v);
+        }
+        // Fall back to nested traversal (e.g. "explorer" -> "backgroundColor")
+        let parts: Vec<&str> = key.split('.').collect();
+        let mut current = obj;
+        for i in 0..parts.len() {
+            match current.get(parts[i]) {
+                Some(Value::Object(map)) if i < parts.len() - 1 => current = map,
+                Some(v) if i == parts.len() - 1 => return Some(v),
+                _ => return None,
+            }
+        }
+        None
     }
 
     fn fire_handlers(&self, key: &str, new_val: &Value) {
@@ -173,6 +227,31 @@ impl Settings {
 fn set_in_layer(layer: &mut Value, key: &str, value: Value) {
     if let Some(obj) = layer.as_object_mut() {
         obj.insert(key.to_owned(), value);
+    }
+}
+
+fn unflatten_value(flat: &Value) -> Value {
+    let mut result = serde_json::Map::new();
+    if let Value::Object(map) = flat {
+        for (key, value) in map {
+            unflatten_into(key, value, &mut result);
+        }
+    }
+    Value::Object(result)
+}
+
+fn unflatten_into(key: &str, value: &Value, out: &mut serde_json::Map<String, Value>) {
+    let parts: Vec<&str> = key.split('.').collect();
+    if parts.len() == 1 {
+        out.insert(key.to_owned(), value.clone());
+        return;
+    }
+    let first = parts[0];
+    let rest = &parts[1..];
+    let entry = out.entry(first.to_owned()).or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if let Value::Object(inner) = entry {
+        let sub_key = rest.join(".");
+        unflatten_into(&sub_key, value, inner);
     }
 }
 

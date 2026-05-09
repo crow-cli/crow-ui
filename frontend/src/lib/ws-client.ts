@@ -41,6 +41,7 @@ export class WsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private terminalHandlers = new Set<TerminalEventHandler>();
   private rawMessageHandlers = new Set<(event: MessageEvent) => void>();
+  private settingsHandlers = new Set<(key: string) => void>();
 
   constructor(private url: string) {}
 
@@ -109,12 +110,22 @@ export class WsClient {
       for (const handler of this.terminalHandlers) {
         handler(event);
       }
+    } else if (method === "settings-changed") {
+      const key = params.key as string;
+      for (const handler of this.settingsHandlers) {
+        handler(key);
+      }
     }
   }
 
   onTerminalEvent(handler: TerminalEventHandler): () => void {
     this.terminalHandlers.add(handler);
     return () => this.terminalHandlers.delete(handler);
+  }
+
+  onSettingsChange(handler: (key: string) => void): () => void {
+    this.settingsHandlers.add(handler);
+    return () => this.settingsHandlers.delete(handler);
   }
 
   /** Subscribe to raw WebSocket messages (before JSON parsing). */
