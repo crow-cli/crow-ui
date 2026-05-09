@@ -122,4 +122,88 @@ test.describe("ACP Backend Control", () => {
     expect(result.status).toBe(202);
     expect(result.body.status).toBe("queued");
   });
+
+  test("terminal tool renders output in chat inline terminal", async ({
+    page,
+  }, testInfo) => {
+    // Use a large viewport so the chat pane has room to render terminals
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto(BASE_URL);
+    await page.waitForTimeout(2500);
+
+    // Create session with the murder-sidex workspace so agent has files to work with
+    const createResult = await page.evaluate(async () => {
+      const resp = await fetch("/api/acp/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: "/home/thomas/src/crow-ai/murder-sidex" }),
+      });
+      return await resp.json();
+    });
+    const sessionId = createResult.sessionId;
+
+    // Wait for session to connect and chat tab to appear
+    await page.waitForTimeout(5000);
+
+    // Take screenshot before prompt — clean chat state
+    await page.screenshot({
+      path: `${testInfo.outputDir}/terminal-test-01-before-prompt.png`,
+    });
+
+    // Send a prompt that will trigger a terminal tool
+    await page.evaluate(async (sid) => {
+      await fetch(`/api/acp/sessions/${sid}/prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          blocks: [
+            {
+              type: "text",
+              text: 'Run the command `echo "TERMINAL_RENDER_TEST"` in the terminal and tell me what it printed.',
+            },
+          ],
+        }),
+      });
+    }, sessionId);
+
+    // Wait for agent to start thinking and potentially use terminal
+    await page.waitForTimeout(4000);
+
+    // Take screenshot while agent is working — should show thinking + terminal
+    await page.screenshot({
+      path: `${testInfo.outputDir}/terminal-test-02-mid-execution.png`,
+    });
+
+    // Wait for terminal execution to complete and xterm to render
+    await page.waitForTimeout(8000);
+
+    // Scroll to ensure the terminal tool call is visible before screenshot
+    const terminalTool = page
+      .locator("[data-testid='chat-pane']")
+      .locator("text=$ echo")
+      .first();
+    if (await terminalTool.isVisible().catch(() => false)) {
+      await terminalTool.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(500);
+    }
+
+    // Take screenshot after execution — terminal should show output
+    await page.screenshot({
+      path: `${testInfo.outputDir}/terminal-test-03-after-execution.png`,
+    });
+
+    // Verify the terminal output appears in the chat UI.
+    // The xterm.js terminal renders the output in a span inside the terminal canvas.
+    const terminalOutput = page
+      .locator(".xterm-screen, .xterm-rows")
+      .getByText("TERMINAL_RENDER_TEST", { exact: false });
+    await expect(terminalOutput).toBeVisible();
+
+    // Also verify the agent mentions the output in its response
+    const agentResponse = page
+      .locator("[data-testid='chat-pane'] p")
+      .filter({ hasText: /TERMINAL_RENDER_TEST/i })
+      .first();
+    await expect(agentResponse).toBeVisible();
+  });
 });
