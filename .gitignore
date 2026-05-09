@@ -1,4 +1,5 @@
 frontend/node_modules
+frontend/test-results
 target
 electron/node_modules
 electron/dist

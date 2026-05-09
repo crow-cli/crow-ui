@@ -1,144 +1,118 @@
 # PLAN.md
 
-The plan for implementing the task
+The plan for implementing backend-controlled ACP orchestration.
 
 
 # TASK
 
-Create endpoint which can accept an external connection to a endpoing which will invoke session/prompt in the frontend on an "active" (the window is open/new_session has been called) agent via the frontend's ACP client. We start here. Then work our way up.
+Create endpoint which can accept an external connection to invoke `session/prompt` in the frontend on an "active" agent via the frontend's ACP client. Build up from there to full multi-agent orchestration.
 
 
-# PLAN
--
-
-Architecture: Backend-Controlled ACP Orchestration
+# Architecture: Backend-Controlled ACP Orchestration
 
 ## Core Insight
 
 Both orchestrator and worker agents run as sessions in the **same frontend ACP client**. The backend is a stateful control plane that routes messages between them. All communication is **async** — no agent blocks waiting for another.
+
+## WebSocket Endpoint Split
+
+- **`/ws`** — App control WebSocket. Settings, files, terminals, worktree, and backend→frontend ACP command broadcasts.
+- **`/ws/acp`** — ACP protocol WebSocket. Raw JSON-RPC between agent subprocess and frontend `AcpClient`.
+
+**Critical**: ACP methods (`acp_spawn`, `acp_terminal_output`, etc.) MUST go over `/ws/acp`. The app `/ws` handler rejects unknown ACP methods.
 
 ## Message Flow
 
 ### Session Creation (synchronous)
 ```
 External caller (MCP tool)
-  → POST /api/acp/sessions {agentConfig, cwd}
-  → Backend WS broadcast: acp-command-new-session
-  → Frontend: creates new window/tab, spawns AcpClient, does ACP handshake
-  → Frontend WS report: acp-report-session-created {sessionId}
-  → Backend: returns {sessionId} in HTTP response
+  → POST /api/acp/sessions {cwd}
+  → Backend WS broadcast: acp-command-new-session {requestId}
+  → Frontend: opens chat tab, spawns AcpClient, does ACP handshake
+  → Frontend WS report: acp-report-session-created {requestId, sessionId}
+  → Backend: resolves oneshot, returns {sessionId} in HTTP response
 ```
 
 The caller blocks until the session is fully created and the ACP handshake completes.
 
-### Orchestrator → Worker (fire and forget)
+### Prompt (fire and forget)
 ```
-Orchestrator agent (session A)
-  → MCP tool call (non-blocking)
-  → Backend HTTP API: POST /api/acp/sessions/:worker_id/prompt
-  → Backend WS broadcast: acp-command-prompt
-  → Frontend AcpClient: session/prompt to worker (session B)
-  → Worker agent starts working
-```
-
-Orchestrator's react loop continues immediately. It does NOT wait.
-
-### Worker → Orchestrator (done signal)
-```
-Worker agent finishes
-  → end_turn + compact summary in output
-  → Frontend WS report: acp-report-turn-complete
-  → Backend: enqueue summary for orchestrator
-  → Backend WS broadcast: acp-command-prompt
-  → Frontend AcpClient: session/prompt to orchestrator (session A)
-  → Orchestrator sees: "Worker B completed: <summary>"
+External caller
+  → POST /api/acp/sessions/:id/prompt {blocks}
+  → Backend WS broadcast: acp-command-prompt {sessionId, blocks}
+  → Frontend AcpClient: session/prompt to agent
+  → Agent starts working
 ```
 
-## Why This Works
+Returns 202 immediately. The actual work happens asynchronously.
 
-1. **No blocking MCP**: The orchestrator's `session/prompt` returns immediately. The actual work happens asynchronously.
-2. **No callback complexity**: The "return path" is just another `session/prompt` in reverse.
-3. **Backend owns queues**: If orchestrator isn't ready, messages queue in backend SQLite.
-4. **Telemetry for free**: Backend logs every tool call, content block, and reasoning step from both agents via its own SQLite inspection layer.
-
-## Backend Components Needed
-
-### 1. HTTP Control API (ACP-mirror routes)
+### Cancel (fire and forget)
 ```
-POST /api/acp/sessions                   → create new session (sync, blocks until handshake)
-POST /api/acp/sessions/:id/prompt        → send prompt (async, fire-and-forget)
-POST /api/acp/sessions/:id/cancel        → cancel turn (async)
-POST /api/acp/sessions/:id/load          → load previous session (sync)
-GET  /api/acp/sessions/:id               → get session state
-GET  /api/acp/sessions                   → list active sessions
+External caller
+  → POST /api/acp/sessions/:id/cancel
+  → Backend WS broadcast: acp-command-cancel {sessionId}
+  → Frontend AcpClient: session/cancel
 ```
 
-### 2. WS Command Broadcast Channel
-**Commands (backend → frontend):**
-- `acp-command-new-session` → frontend creates window + AcpClient + ACP handshake
-- `acp-command-prompt` → frontend executes `session/prompt`
-- `acp-command-cancel` → frontend executes `session/cancel`
+## Current Status
 
-**Reports (frontend → backend):**
-- `acp-report-session-created` → frontend reports sessionId after handshake
-- `acp-report-turn-complete` → frontend reports end_turn with summary
+### ✅ Implemented
 
-### 3. Per-Session Message Queue (SQLite)
-```sql
-CREATE TABLE session_queue (
-  id INTEGER PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  direction TEXT NOT NULL, -- 'in' (to agent) or 'out' (from agent)
-  payload JSON NOT NULL,
-  status TEXT NOT NULL, -- 'pending', 'sent', 'completed'
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
+**Backend (`backend/crates/crow-ui-server/src/`)**
+- `state.rs`: `acp_cmd_tx` broadcast channel + `acp_pending` DashMap for sync session creation
+- `ws.rs`: HTTP routes `POST /api/acp/sessions`, `/:id/prompt`, `/:id/cancel`
+- `ws.rs`: WS broadcast subscription for `acp_cmd_rx` in `handle_socket`
+- `ws.rs`: `acp_report_session_created` handler resolves pending oneshot
 
-### 4. Telemetry Service
-Backend inspects agent SQLite dbs and exposes:
-```
-GET /api/sessions/:id/tools      → tool calls made
-GET /api/sessions/:id/content    → content blocks emitted
-GET /api/sessions/:id/reasoning  → reasoning traces
-```
+**Frontend (`frontend/src/`)**
+- `lib/ws-client.ts`: `onAcpCommand(handler)` subscription for `acp-command-*`
+- `App.tsx`: `acp-command-new-session` handler creates session + opens chat tab + reports back
+- `App.tsx`: `acp-command-prompt` handler calls `acpStore.prompt(sessionId, blocks)`
+- `App.tsx`: `acp-command-cancel` handler calls `acpStore.cancel(sessionId)`
+- `lib/acp-store.ts`: `getClient(sessionId)` exposes `AcpClient` for imperative calls
+- `components/InlineTerminal.tsx`: Routes ACP terminal calls through `acpStore.getClient(sessionId)?.wsInvoke()` over `/ws/acp`
 
-## Frontend Changes Needed
+**Tests (`frontend/e2e/`)**
+- `acp-control.spec.ts`: Create session via API with real `crow-cli` agent
+- `acp-control.spec.ts`: Prompt delivers message to chat UI
+- `acp-control.spec.ts`: Full flow — create → prompt → agent responds
+- `acp-control.spec.ts`: Terminal tool renders output in chat inline terminal (with screenshots)
+- `websocket-split.spec.ts`: Validates `/ws` rejects ACP methods and `/ws/acp` rejects app methods
 
-1. **Subscribe to `acp-command-*` notifications** on `/ws`
-2. **Execute commands** via existing AcpClient
-3. **Report `end_turn`** back to backend via `acp-report-turn-complete`
-4. **Queue UI**: Show pending messages per session
+**Visual Verification**
+- Playwright browser tests navigate to frontend, call API, take screenshots
+- Terminal output is now correctly rendered in chat inline terminals (fixed WS routing regression)
 
-## Implementation Order
+### ⏳ Pending
 
-### Phase 1: Backend HTTP API + WS Commands
-- [ ] Add `acp_cmd_tx` broadcast channel to AppState
-- [ ] Add `POST /api/acp/sessions` (sync — waits for frontend handshake)
-- [ ] Add `POST /api/acp/sessions/:id/prompt` (async)
-- [ ] Add `POST /api/acp/sessions/:id/cancel` (async)
-- [ ] Add WS notification handlers for `acp-command-new-session`, `acp-command-prompt`, `acp-command-cancel`
-- [ ] Add WS report handlers for `acp-report-session-created`, `acp-report-turn-complete`
-- [ ] Frontend subscribes and executes commands
+**Phase 1: Message Queue + Turn Complete**
+- [ ] Frontend reports `acp-report-turn-complete` when agent finishes
+- [ ] Backend SQLite queue for pending messages per session
+- [ ] Auto-dequeue and send when turn completes
 
-### Phase 2: Message Queue
-- [ ] SQLite schema for session_queue
-- [ ] Enqueue on HTTP POST, dequeue on `end_turn` report
-- [ ] Auto-send queued messages when turn completes
+**Phase 2: Telemetry**
+- [ ] Backend inspects agent SQLite dbs
+- [ ] REST API: `GET /api/sessions/:id/tools`, `/content`, `/reasoning`
 
-### Phase 3: Telemetry
-- [ ] SQLite inspection layer for agent dbs
-- [ ] REST API for tools/content/reasoning
-- [ ] Frontend telemetry panel
+**Phase 3: Multi-Agent Orchestration**
+- [ ] Orchestrator can spawn worker sessions via tool call
+- [ ] Workers report completion back to orchestrator
+- [ ] Session lifecycle management (cleanup inactive sessions)
 
-### Phase 4: Chat UI Polish
+**Phase 4: Chat UI Polish**
 - [ ] Stop button replaces send during agent response
 - [ ] Message queue UI (pending messages)
 - [ ] Model selector
 - [ ] Monaco diff with hideUnchangedRegions
 
-## Notes
+## Key Learnings
 
-- The orchestrator and worker are **peers**. Either can prompt the other.
-- The backend is **dumb about ACP protocol**. It forwards bytes and tracks state.
-- All "intelligence" lives in the agents. The backend is a router + queue + telemetry.
+1. **Synchronous session creation works**: Backend generates `requestId`, broadcasts command, frontend reports back via `acp_report_session_created`, backend resolves oneshot. Timeout after 30s.
+
+2. **WebSocket split is critical**: All ACP protocol traffic (spawn, relay, terminal methods) MUST go over `/ws/acp`. App methods (settings, files) go over `/ws`. Never mix them.
+
+3. **Auto-open chat tabs**: When `acp-command-new-session` arrives, the frontend should both create the ACP session AND open a FlexLayout chat tab. Otherwise notifications go to the store but no UI subscribes.
+
+4. **Real agents only**: `crow-cli acp` processes are the actual ACP agents. Tests must spawn real agents, not echo mocks.
+
+5. **xterm.js timing**: Inline terminal screenshots may need a small delay after scroll to let the canvas render.

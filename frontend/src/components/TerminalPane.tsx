@@ -2,7 +2,16 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
+import { Copy, ClipboardPaste, Trash2, BoxSelect } from "lucide-react";
 import { ws } from "../lib/ws-client";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+} from "./ui/context-menu";
 import "xterm/css/xterm.css";
 
 interface TerminalPaneProps {
@@ -38,7 +47,11 @@ const TERMINAL_THEME = {
   brightWhite: "#ffffff",
 };
 
-export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: TerminalPaneProps) {
+export default function TerminalPane({
+  workspaceRoot,
+  terminalId,
+  keepAlive,
+}: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -78,11 +91,49 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme: TERMINAL_THEME,
       scrollback: 10000,
+      wordSeparator: " \t\r\n\"'`(){}[]<>|&;",
+
     });
 
     const fitAddon = new FitAddon();
+    // WebLinksAddon removed due to v6 API change
+
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
+    // terminal.loadAddon(webLinksAddon);
+
+
+    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      const { ctrlKey, metaKey, key, type } = event;
+      if (type !== "keydown") return true;
+      const modifier = ctrlKey || metaKey;
+      if (!modifier) return true;
+
+      switch (key) {
+        case "c":
+          if (terminal.hasSelection()) {
+            event.preventDefault();
+            navigator.clipboard.writeText(terminal.getSelection()).catch(() => {});
+            return false;
+          }
+          return true;
+        case "v":
+          event.preventDefault();
+          navigator.clipboard.readText().then((text) => terminal.paste(text)).catch(() => {});
+          return false;
+        case "a":
+          event.preventDefault();
+          terminal.selectAll();
+          return false;
+        case "l":
+          event.preventDefault();
+          terminal.clear();
+          return false;
+        case "k":
+          return true;
+        default:
+          return true;
+      }
+    });
 
     terminal.open(containerRef.current!);
     fitAddon.fit();
@@ -92,7 +143,11 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
-      if (termIdRef.current !== null && containerRef.current && containerRef.current.clientWidth > 0) {
+      if (
+        termIdRef.current !== null &&
+        containerRef.current &&
+        containerRef.current.clientWidth > 0
+      ) {
         const dims = fitAddon.proposeDimensions();
         if (dims && Number.isFinite(dims.cols) && Number.isFinite(dims.rows)) {
           if (resizeTimeout) clearTimeout(resizeTimeout);
@@ -112,17 +167,19 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
       cwd: workspaceRoot,
       cols: 80,
       rows: 24,
-    }).then(({ id }) => {
-      termIdRef.current = id;
+    })
+      .then(({ id }) => {
+        termIdRef.current = id;
 
-      terminal.onData((data) => {
-        ws.invoke("terminal_write", { id, data }).catch(() => {});
+        terminal.onData((data) => {
+          ws.invoke("terminal_write", { id, data }).catch(() => {});
+        });
+
+        setTimeout(() => fitAddon.fit(), 100);
+      })
+      .catch((e) => {
+        terminal.writeln(`\x1b[31mFailed to spawn terminal: ${e}\x1b[0m`);
       });
-
-      setTimeout(() => fitAddon.fit(), 100);
-    }).catch((e) => {
-      terminal.writeln(`\x1b[31mFailed to spawn terminal: ${e}\x1b[0m`);
-    });
 
     setInitialized(true);
 
@@ -131,6 +188,8 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
       resizeObserver.disconnect();
     };
   }, [workspaceRoot, terminalId]);
+
+
 
   // Handle terminal events from server
   useEffect(() => {
@@ -141,20 +200,79 @@ export default function TerminalPane({ workspaceRoot, terminalId, keepAlive }: T
       if (event.type === "data" && termIdRef.current === event.id) {
         term.write(event.data ?? "");
       } else if (event.type === "exit" && termIdRef.current === event.id) {
-        term.writeln(`\x1b[33m[Process exited with code ${event.exitCode}]\x1b[0m`);
+        term.writeln(
+          `\x1b[33m[Process exited with code ${event.exitCode}]\x1b[0m`,
+        );
         termIdRef.current = null;
       }
     });
     return unsubscribe;
   }, []);
 
+  // Context menu actions
+  const handleCopy = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (terminal && terminal.hasSelection()) {
+      navigator.clipboard.writeText(terminal.getSelection()).catch(() => {});
+    }
+  }, []);
+
+  const handlePaste = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    navigator.clipboard
+      .readText()
+      .then((text) => {
+        terminal.paste(text);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    terminalRef.current?.selectAll();
+  }, []);
+
+  const handleClear = useCallback(() => {
+    terminalRef.current?.clear();
+  }, []);
+
   return (
-    <div className="relative h-full w-full">
-      <div
-        ref={containerRef}
-        className="absolute inset-0 overflow-hidden bg-[var(--color-background-deeper)]"
-      />
-      <div className="dot-overlay" />
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="relative h-full w-full">
+          <div
+            ref={containerRef}
+            className="absolute inset-0 overflow-hidden bg-[var(--color-background-deeper)]"
+          />
+          <div className="dot-overlay" />
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem
+          onClick={handleCopy}
+          disabled={!terminalRef.current?.hasSelection()}
+        >
+          <Copy className="mr-2 h-4 w-4" />
+          Copy
+          <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuItem onClick={handlePaste}>
+          <ClipboardPaste className="mr-2 h-4 w-4" />
+          Paste
+          <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+          <ContextMenuItem onClick={handleSelectAll}>
+            <BoxSelect className="mr-2 h-4 w-4" />
+            Select All
+            <ContextMenuShortcut>⌘A</ContextMenuShortcut>
+          </ContextMenuItem>
+        <ContextMenuItem onClick={handleClear}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Clear
+          <ContextMenuShortcut>⌘L</ContextMenuShortcut>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
