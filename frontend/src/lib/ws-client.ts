@@ -42,6 +42,7 @@ export class WsClient {
   private terminalHandlers = new Set<TerminalEventHandler>();
   private rawMessageHandlers = new Set<(event: MessageEvent) => void>();
   private settingsHandlers = new Set<(key: string) => void>();
+  private acpCommandHandlers = new Set<(method: string, params: Record<string, unknown>) => void>();
 
   constructor(private url: string) {}
 
@@ -115,6 +116,10 @@ export class WsClient {
       for (const handler of this.settingsHandlers) {
         handler(key);
       }
+    } else if (method.startsWith("acp-command-")) {
+      for (const handler of this.acpCommandHandlers) {
+        handler(method, params);
+      }
     }
   }
 
@@ -126,6 +131,11 @@ export class WsClient {
   onSettingsChange(handler: (key: string) => void): () => void {
     this.settingsHandlers.add(handler);
     return () => this.settingsHandlers.delete(handler);
+  }
+
+  onAcpCommand(handler: (method: string, params: Record<string, unknown>) => void): () => void {
+    this.acpCommandHandlers.add(handler);
+    return () => this.acpCommandHandlers.delete(handler);
   }
 
   /** Subscribe to raw WebSocket messages (before JSON parsing). */

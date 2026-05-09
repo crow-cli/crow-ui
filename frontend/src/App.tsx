@@ -250,6 +250,87 @@ export default function App() {
     return () => ws.disconnect();
   }, []);
 
+  // Subscribe to backend ACP control commands
+  useEffect(() => {
+    return ws.onAcpCommand((method, params) => {
+      if (method === "acp-command-new-session") {
+        const requestId = params.requestId as string;
+        const sessionId = `session-${Date.now()}`;
+        // Use current workspace and agent config
+        if (workspaceRoot && agentConfigRef.current) {
+          acpStore.createSession(sessionId, agentConfigRef.current, workspaceRoot);
+
+          // Open a chat tab for this session
+          const model = layoutModelRef.current;
+          if (model) {
+            const chatId = `chat-${Date.now()}`;
+            let targetNode = model.getNodeById("chat-tabset");
+            if (!targetNode) {
+              model.visitNodes((node) => {
+                if (node.getType() === "tabset") {
+                  const children = node.getChildren();
+                  if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === "chat")) {
+                    targetNode = node;
+                    return false;
+                  }
+                }
+                return true;
+              });
+            }
+            if (targetNode) {
+              model.doAction(
+                Actions.addTab(
+                  { type: "tab", name: "Agent Chat", component: "chat", config: { sessionId }, id: chatId },
+                  targetNode.getId(),
+                  DockLocation.CENTER,
+                  -1,
+                  true,
+                ),
+              );
+            } else {
+              const editorTabset = model.getNodeById("editor-tabset");
+              if (editorTabset) {
+                const centerRow = editorTabset.getParent();
+                if (centerRow && centerRow.getType() === "row") {
+                  model.doAction(
+                    Actions.addNode(
+                      { type: "tab", name: "Agent Chat", component: "chat", config: { sessionId }, id: chatId },
+                      centerRow.getId(),
+                      DockLocation.RIGHT,
+                      -1,
+                      true,
+                    ),
+                  );
+                }
+              }
+            }
+          }
+
+          // Report back to backend when session is ready
+          const checkReady = setInterval(() => {
+            const client = acpStore.getClient(sessionId);
+            if (client?.activeSessionId) {
+              clearInterval(checkReady);
+              ws.invoke("acp_report_session_created", {
+                requestId,
+                result: { sessionId },
+              }).catch(console.error);
+            }
+          }, 100);
+          // Timeout after 25s
+          setTimeout(() => clearInterval(checkReady), 25000);
+        }
+      } else if (method === "acp-command-prompt") {
+        const sessionId = params.sessionId as string;
+        const blocks = params.blocks as any[];
+        acpStore.prompt(sessionId, blocks).catch(console.error);
+      } else if (method === "acp-command-cancel") {
+        const sessionId = params.sessionId as string;
+        acpStore.cancel(sessionId).catch(console.error);
+      }
+    });
+  }, [workspaceRoot]);
+
   // Load settings after connection
   useEffect(() => {
     if (!connected) return;

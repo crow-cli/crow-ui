@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { ws } from "../lib/ws-client";
+import * as acpStore from "../lib/acp-store";
 import "xterm/css/xterm.css";
 
 interface InlineTerminalProps {
@@ -23,6 +24,8 @@ interface InlineTerminalProps {
   exited?: boolean;
   /** Exit code if exited */
   exitCode?: number;
+  /** Session ID for routing ACP calls over /ws/acp */
+  sessionId?: string;
 }
 
 // Terminal color theme (xterm.js only — not React styles)
@@ -56,6 +59,7 @@ export default function InlineTerminal({
   cwd: initialCwd,
   exited: initialExited,
   exitCode: initialExitCode,
+  sessionId,
 }: InlineTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -108,7 +112,7 @@ export default function InlineTerminal({
     // Always fetch current output on mount. For completed terminals this gets
     // everything. For running terminals this gets a snapshot, and incremental
     // updates arrive via polling below.
-    ws.invoke("acp_terminal_output", { terminalId })
+    acpInvoke("acp_terminal_output", { terminalId })
       .then((result: any) => {
         if (result?.output) {
           terminal.write(result.output);
@@ -128,7 +132,7 @@ export default function InlineTerminal({
     // Wire stdin to backend
     terminal.onData((data) => {
       if (!ws.connected) return;
-      ws.invoke("acp_terminal_write_input", {
+      acpInvoke("acp_terminal_write_input", {
         terminalId: terminalIdRef.current,
         data: data,
       }).catch(() => {});
@@ -137,7 +141,7 @@ export default function InlineTerminal({
     // Wire resize to backend
     terminal.onResize((dimensions) => {
       if (!ws.connected) return;
-      ws.invoke("acp_terminal_resize", {
+      acpInvoke("acp_terminal_resize", {
         terminalId: terminalIdRef.current,
         cols: dimensions.cols,
         rows: dimensions.rows,
@@ -200,7 +204,7 @@ export default function InlineTerminal({
         clearInterval(pollInterval);
         return;
       }
-      ws.invoke("acp_terminal_output", { terminalId })
+      acpInvoke("acp_terminal_output", { terminalId })
         .then((result: any) => {
           const output = result?.output || "";
           // Only write new data (incremental)
@@ -241,6 +245,15 @@ export default function InlineTerminal({
 
     return () => observer.disconnect();
   }, []);
+
+  // Route ACP terminal calls through the ACP client's /ws/acp connection
+  const acpInvoke = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const client = sessionId ? acpStore.getClient(sessionId) : null;
+    if (client) {
+      return client.wsInvoke(method, params);
+    }
+    return ws.invoke(method, params);
+  };
 
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {

@@ -1,8 +1,8 @@
 {
-  "name": "crow-ui-ide",
+  "name": "crow-ui",
   "version": "0.1.0",
   "description": "Murder IDE — AI-powered code editor",
-  "homepage": "https://github.com/thomas-wood/crow-ui-ide",
+  "homepage": "https://github.com/crow-cli/crow-ui",
   "author": {
     "name": "Thomas Wood",
     "email": "odell.wood@gmail.com"

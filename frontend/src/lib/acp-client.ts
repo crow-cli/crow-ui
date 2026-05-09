@@ -129,6 +129,7 @@ export class AcpClient {
       reject: (e: Error) => void;
     }
   >();
+  public url = "";
 
   constructor(options: AcpClientOptions) {
     this.agentConfig = options.agentConfig;
@@ -168,13 +169,14 @@ export class AcpClient {
 
     this.setStatus("connecting");
 
-    // Create WebSocket connection
+    // Create WebSocket connection to ACP endpoint (dumb pipe, separate from app control)
     // In dev mode, connect directly to backend (Vite proxy is unreliable for multiple WS connections)
     // In production, use same-origin (backend serves both frontend + WS on same port)
     const isDev = window.location.port === "5173" || import.meta.env?.DEV;
     const wsUrl = isDev
-      ? "ws://localhost:3928/ws"
-      : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
+      ? "ws://localhost:3928/ws/acp"
+      : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/acp`;
+    this.url = wsUrl;
     this.ws = new WebSocket(wsUrl);
 
     await new Promise<void>((resolve, reject) => {
@@ -210,7 +212,7 @@ export class AcpClient {
     const initResponse = await this.connection.initialize({
       protocolVersion: 1,
       clientInfo: {
-        name: "crow-ui-ide",
+        name: "crow-ui",
         version: "0.1.0",
       },
       clientCapabilities: {

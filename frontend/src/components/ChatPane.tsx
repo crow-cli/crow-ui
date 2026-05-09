@@ -799,6 +799,7 @@ function ToolCallAccordion({
                 undefined
               }
               exited={status === "completed" || status === "failed"}
+              sessionId={sessionId}
             />
           ) : null}
 

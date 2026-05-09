@@ -11,7 +11,7 @@ BINARY="$IDE_DIR/target/release/crow-ui-server"
 MODE="${1:---release}"
 DIST="${2}"
 
-echo "=== Building crow-ui-ide Electron app ==="
+echo "=== Building crow-ui Electron app ==="
 
 # 1. Build frontend
 echo "[1/4] Building frontend (Vite)..."

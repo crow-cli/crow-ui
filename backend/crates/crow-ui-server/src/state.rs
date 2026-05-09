@@ -9,7 +9,7 @@ use crow_ui_workspace::{Workspace, WorktreeState};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use serde_json::Value;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 
 /// Migrate legacy `murder.json` (nested JSONC) to `crow-ui-settings.json` (flat JSON).
 fn maybe_migrate_settings(settings: &mut Settings, settings_path: &Path) {
@@ -95,6 +95,11 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     /// Broadcast channel for settings changes → all connected WebSocket clients.
     pub settings_events_tx: broadcast::Sender<String>,
+    /// Broadcast channel for ACP control commands → frontend AcpClient.
+    pub acp_cmd_tx: broadcast::Sender<String>,
+    /// Pending synchronous ACP commands waiting for frontend response.
+    /// Key: request_id, Value: oneshot sender for the response.
+    pub acp_pending: DashMap<String, oneshot::Sender<Value>>,
 }
 
 impl AppState {
@@ -102,6 +107,7 @@ impl AppState {
         let tm = TerminalManager::new();
         let worktree_events_tx = broadcast::Sender::new(256);
         let settings_events_tx = broadcast::Sender::new(16);
+        let acp_cmd_tx = broadcast::Sender::new(256);
         let db = Database::open_default().expect("failed to open state database");
         let settings_path = dirs::home_dir()
             .map(|h| h.join(".crow").join("crow-ui-settings.json"))
@@ -124,12 +130,15 @@ impl AppState {
             db: Mutex::new(db),
             settings: Mutex::new(settings),
             settings_events_tx,
+            acp_cmd_tx,
+            acp_pending: DashMap::new(),
         }
     }
 
     pub fn with_terminals(tm: TerminalManager, tx: broadcast::Sender<String>) -> Self {
         let worktree_events_tx = broadcast::Sender::new(256);
         let settings_events_tx = broadcast::Sender::new(16);
+        let acp_cmd_tx = broadcast::Sender::new(256);
         let db = Database::open_default().expect("failed to open state database");
         let settings_path = dirs::home_dir()
             .map(|h| h.join(".crow").join("crow-ui-settings.json"))
@@ -152,6 +161,8 @@ impl AppState {
             db: Mutex::new(db),
             settings: Mutex::new(settings),
             settings_events_tx,
+            acp_cmd_tx,
+            acp_pending: DashMap::new(),
         }
     }
 

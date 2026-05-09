@@ -118,6 +118,7 @@ export function createSession(
   });
 
   state.client = client;
+  (window as any).__acp_client = client;
 
   client
     .connect()

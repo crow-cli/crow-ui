@@ -7,11 +7,12 @@ use axum::{
     body::Body,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Path, State,
     },
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, Router},
+    routing::{get, post, Router},
+    Json,
 };
 use mime_guess::from_path;
 use crow_ui_terminal::TerminalEvent;
@@ -34,6 +35,10 @@ struct Assets;
 pub async fn run_server(app: App, port: u16) {
     let router = Router::new()
         .route("/ws", get(ws_handler))
+        .route("/ws/acp", get(acp_ws_handler))
+        .route("/api/acp/sessions", post(create_session_handler))
+        .route("/api/acp/sessions/:session_id/prompt", post(prompt_session_handler))
+        .route("/api/acp/sessions/:session_id/cancel", post(cancel_session_handler))
         .with_state(app)
         // Fallback: serve embedded frontend files
         .fallback(get(serve_embedded));
@@ -61,8 +66,14 @@ async fn ws_handler(ws: WebSocketUpgrade, State(app): State<App>) -> impl IntoRe
     ws.on_upgrade(move |socket| handle_socket(socket, app))
 }
 
+async fn acp_ws_handler(ws: WebSocketUpgrade, State(app): State<App>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_acp_socket(socket, app))
+}
+
+/// App control WebSocket — settings, files, terminals, worktree, etc.
+/// Does NOT carry raw ACP protocol traffic.
 async fn handle_socket(mut socket: WebSocket, app: App) {
-    tracing::info!("WebSocket client connected");
+    tracing::info!("WebSocket client connected (app control)");
 
     // Subscribe to terminal event broadcasts
     let mut event_rx = {
@@ -70,13 +81,7 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
         state.terminal_events_tx.subscribe()
     };
 
-    // Subscribe to ACP agent event broadcasts
-    let mut acp_rx = {
-        let state = app.lock().await;
-        state.agents.events_tx.subscribe()
-    };
-
-    // Subscribe to ACP terminal event broadcasts
+    // Subscribe to ACP terminal event broadcasts (for inline terminals in chat UI)
     let mut acp_term_rx = {
         let state = app.lock().await;
         state.agents.terminals.subscribe_events()
@@ -92,6 +97,12 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
     let mut settings_rx = {
         let state = app.lock().await;
         state.settings_events_tx.subscribe()
+    };
+
+    // Subscribe to ACP command broadcasts (backend → frontend control)
+    let mut acp_cmd_rx = {
+        let state = app.lock().await;
+        state.acp_cmd_tx.subscribe()
     };
 
     loop {
@@ -134,23 +145,6 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
                     Ok(json) => {
                         if let Err(e) = socket.send(Message::Text(json)).await {
                             tracing::warn!("Failed to push terminal event: {e}");
-                            break;
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        // Dropped events — continue
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        break;
-                    }
-                }
-            }
-            // ACP agent event from broadcast
-            acp_event = acp_rx.recv() => {
-                match acp_event {
-                    Ok(json) => {
-                        if let Err(e) = socket.send(Message::Text(json)).await {
-                            tracing::warn!("Failed to push ACP event: {e}");
                             break;
                         }
                     }
@@ -225,6 +219,136 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
                     }
                 }
             }
+            // ACP command from broadcast (backend → frontend)
+            acp_cmd = acp_cmd_rx.recv() => {
+                match acp_cmd {
+                    Ok(json) => {
+                        if let Err(e) = socket.send(Message::Text(json)).await {
+                            tracing::warn!("Failed to push ACP command: {e}");
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// ACP protocol WebSocket — dumb pipe between agent and frontend client.
+/// Only carries ACP spawn/relay/kill and raw agent stdout events.
+async fn handle_acp_socket(mut socket: WebSocket, app: App) {
+    tracing::info!("WebSocket client connected (ACP protocol)");
+
+    // Subscribe to ACP agent event broadcasts (raw agent stdout)
+    let mut acp_rx = {
+        let state = app.lock().await;
+        state.agents.events_tx.subscribe()
+    };
+
+    loop {
+        tokio::select! {
+            // Incoming WebSocket message from frontend AcpClient
+            msg = socket.recv() => {
+                let msg = match msg {
+                    Some(Ok(m)) => m,
+                    Some(Err(e)) => {
+                        tracing::warn!("ACP WebSocket error: {e}");
+                        break;
+                    }
+                    None => {
+                        tracing::info!("ACP WebSocket client disconnected");
+                        break;
+                    }
+                };
+
+                match msg {
+                    Message::Text(text) => {
+                        let result = handle_acp_message(&text, &app).await;
+                        let response = serde_json::to_string(&result).unwrap_or_else(|_| {
+                            r#"{"id":0,"error":"failed to serialize response"}"#.into()
+                        });
+                        if let Err(e) = socket.send(Message::Text(response)).await {
+                            tracing::warn!("Failed to send ACP response: {e}");
+                            break;
+                        }
+                    }
+                    Message::Close(_) => {
+                        tracing::info!("ACP WebSocket client disconnected");
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            // ACP agent event from broadcast (raw agent stdout → frontend)
+            acp_event = acp_rx.recv() => {
+                match acp_event {
+                    Ok(json) => {
+                        if let Err(e) = socket.send(Message::Text(json)).await {
+                            tracing::warn!("Failed to push ACP event: {e}");
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        // Dropped events — continue
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn handle_acp_message(text: &str, app: &App) -> Value {
+    let request: WsRequest = match serde_json::from_str(text) {
+        Ok(r) => r,
+        Err(e) => {
+            return serde_json::to_value(WsError {
+                id: 0,
+                error: format!("parse error: {e}"),
+            })
+            .unwrap_or_default();
+        }
+    };
+
+    tracing::debug!("ACP request: id={} method={}", request.id, request.method);
+
+    let state = app.lock().await;
+
+    let result: Result<Value, String> = match request.method.as_str() {
+        // ACP agent lifecycle
+        "acp_spawn" => handlers::handle_acp_spawn(&state, &request.params).await,
+        "acp_relay" => handlers::handle_acp_relay(&state, &request.params).await,
+        "acp_send" => handlers::handle_acp_send(&state, &request.params).await,
+        "acp_kill" => handlers::handle_acp_kill(&state, &request.params).await,
+        "acp_read_file" => handlers::handle_acp_read_file(&state, &request.params).await,
+        "acp_write_file" => handlers::handle_acp_write_file(&state, &request.params).await,
+
+        // ACP terminal methods
+        "acp_create_terminal" => handlers::handle_acp_create_terminal(&state, &request.params).await,
+        "acp_terminal_output" => handlers::handle_acp_terminal_output(&state, &request.params).await,
+        "acp_wait_for_terminal_exit" => handlers::handle_acp_wait_for_terminal_exit(&state, &request.params).await,
+        "acp_kill_terminal" => handlers::handle_acp_kill_terminal(&state, &request.params).await,
+        "acp_release_terminal" => handlers::handle_acp_release_terminal(&state, &request.params).await,
+        "acp_terminal_write_input" => handlers::handle_acp_terminal_write_input(&state, &request.params).await,
+        "acp_terminal_resize" => handlers::handle_acp_terminal_resize(&state, &request.params).await,
+
+        unknown => Err(format!("unknown ACP method: {unknown}")),
+    };
+
+    drop(state);
+
+    match result {
+        Ok(value) => {
+            serde_json::to_value(WsResponse { id: request.id, result: value }).unwrap_or_default()
+        }
+        Err(error) => {
+            serde_json::to_value(WsError { id: request.id, error }).unwrap_or_default()
         }
     }
 }
@@ -283,23 +407,6 @@ async fn handle_message(text: &str, app: &App) -> Value {
         "get_default_shell" => handlers::handle_get_default_shell(&state, &request.params),
         "get_available_shells" => handlers::handle_get_available_shells(&state, &request.params),
 
-        // ACP methods
-        "acp_spawn" => handlers::handle_acp_spawn(&state, &request.params).await,
-        "acp_relay" => handlers::handle_acp_relay(&state, &request.params).await,
-        "acp_send" => handlers::handle_acp_send(&state, &request.params).await,
-        "acp_kill" => handlers::handle_acp_kill(&state, &request.params).await,
-        "acp_read_file" => handlers::handle_acp_read_file(&state, &request.params).await,
-        "acp_write_file" => handlers::handle_acp_write_file(&state, &request.params).await,
-
-        // ACP terminal methods
-        "acp_create_terminal" => handlers::handle_acp_create_terminal(&state, &request.params).await,
-        "acp_terminal_output" => handlers::handle_acp_terminal_output(&state, &request.params).await,
-        "acp_wait_for_terminal_exit" => handlers::handle_acp_wait_for_terminal_exit(&state, &request.params).await,
-        "acp_kill_terminal" => handlers::handle_acp_kill_terminal(&state, &request.params).await,
-        "acp_release_terminal" => handlers::handle_acp_release_terminal(&state, &request.params).await,
-        "acp_terminal_write_input" => handlers::handle_acp_terminal_write_input(&state, &request.params).await,
-        "acp_terminal_resize" => handlers::handle_acp_terminal_resize(&state, &request.params).await,
-
         // Worktree state methods
         "get_file_before_content" => handlers::handle_get_file_before_content(&state, &request.params).await,
         "get_file_change" => handlers::handle_get_file_change(&state, &request.params).await,
@@ -330,6 +437,16 @@ async fn handle_message(text: &str, app: &App) -> Value {
         "get_setting" => handlers::handle_get_setting(&state, &request.params),
         "update_setting" => handlers::handle_update_setting(&state, &request.params),
 
+        // ACP control reports (frontend → backend)
+        "acp_report_session_created" => {
+            let request_id = request.params.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
+            let result = request.params.get("result").cloned().unwrap_or(serde_json::Value::Null);
+            if let Some((_, tx)) = state.acp_pending.remove(request_id) {
+                let _ = tx.send(result);
+            }
+            Ok(serde_json::json!({ "ok": true }))
+        }
+
         unknown => Err(format!("unknown method: {unknown}")),
     };
 
@@ -345,6 +462,90 @@ async fn handle_message(text: &str, app: &App) -> Value {
             serde_json::to_value(WsError { id: request.id, error }).unwrap_or_default()
         }
     }
+}
+
+/// HTTP handler: POST /api/acp/sessions
+/// Creates a new ACP session synchronously.
+/// Broadcasts acp-command-new-session to frontend and waits for acp-report-session-created.
+async fn create_session_handler(State(app): State<App>) -> impl IntoResponse {
+    let request_id = format!("req-{}", uuid::Uuid::new_v4());
+    let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+
+    // Store pending request
+    {
+        let state = app.lock().await;
+        state.acp_pending.insert(request_id.clone(), tx);
+    }
+
+    // Broadcast command to frontend
+    let notification = WsNotification {
+        method: "acp-command-new-session".into(),
+        params: serde_json::json!({ "requestId": request_id }),
+    };
+    let broadcast_json = serde_json::to_string(&notification).unwrap_or_default();
+
+    {
+        let state = app.lock().await;
+        let _ = state.acp_cmd_tx.send(broadcast_json);
+    }
+
+    // Wait for frontend response (timeout after 30s)
+    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(result)) => {
+            let session_id = result.get("sessionId").and_then(|v| v.as_str());
+            match session_id {
+                Some(id) => (StatusCode::OK, Json(serde_json::json!({ "sessionId": id }))).into_response(),
+                None => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Missing sessionId in response" }))).into_response(),
+            }
+        }
+        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Channel closed" }))).into_response(),
+        Err(_) => {
+            // Clean up pending request on timeout
+            let state = app.lock().await;
+            state.acp_pending.remove(&request_id);
+            (StatusCode::GATEWAY_TIMEOUT, Json(serde_json::json!({ "error": "Timeout waiting for frontend" }))).into_response()
+        }
+    }
+}
+
+/// HTTP handler: POST /api/acp/sessions/:session_id/prompt
+/// Async — broadcasts prompt command to frontend, returns immediately.
+async fn prompt_session_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let notification = WsNotification {
+        method: "acp-command-prompt".into(),
+        params: serde_json::json!({
+            "sessionId": session_id,
+            "blocks": body.get("blocks").unwrap_or(&serde_json::Value::Null),
+        }),
+    };
+    let broadcast_json = serde_json::to_string(&notification).unwrap_or_default();
+
+    let state = app.lock().await;
+    let _ = state.acp_cmd_tx.send(broadcast_json);
+
+    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "queued" })))
+}
+
+/// HTTP handler: POST /api/acp/sessions/:session_id/cancel
+/// Async — broadcasts cancel command to frontend, returns immediately.
+async fn cancel_session_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+) -> impl IntoResponse {
+    let notification = WsNotification {
+        method: "acp-command-cancel".into(),
+        params: serde_json::json!({ "sessionId": session_id }),
+    };
+    let broadcast_json = serde_json::to_string(&notification).unwrap_or_default();
+
+    let state = app.lock().await;
+    let _ = state.acp_cmd_tx.send(broadcast_json);
+
+    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "queued" })))
 }
 
 /// Serve embedded frontend assets.
