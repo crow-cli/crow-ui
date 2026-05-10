@@ -36,6 +36,7 @@
 - ✅ Ctrl+C, Ctrl+V, Ctrl+A work in terminal
 - ✅ Terminal flexes with tab size
 - ✅ PTY spawn via backend, rendering in frontend
+- ✅ Shell environment resolution: `~/.bashrc` PATH/fnm/nvm injected into PTYs, agents, and exec commands
 
 ### Visual Polish
 - ✅ Dot pattern / textured background overlay
@@ -132,7 +133,7 @@
 
 ## 🐛 KNOWN ISSUES
 
-1. **Electron on Linux**: Terminals don't show up in UI. Playwright can't find `npx` because `fnm` is user-installed, not system-wide.
+1. **Electron on Linux**: Terminals don't show up in UI (separate from PATH issue).
 2. **File opening from explorer**: Sometimes requires page refresh to see content. Race condition in FlexLayout tab creation vs content loading.
 3. **Settings pane UI**: Backend reads config, frontend has no UI to modify settings yet. Must edit JSON by hand.
 4. **Monaco diff**: Diff collapsing is fragile. We broke it once and reverted. Needs careful revisit.

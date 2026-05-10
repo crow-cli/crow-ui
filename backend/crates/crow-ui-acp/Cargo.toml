@@ -1,6 +1,6 @@
 [package]
 name = "crow-ui-acp"
-description = "Agent Client Protocol integration for Murder IDE"
+description = "Agent Client Protocol integration for crow-ui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

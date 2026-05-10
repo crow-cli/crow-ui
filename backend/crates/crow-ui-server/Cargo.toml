@@ -1,6 +1,6 @@
 [package]
 name = "crow-ui-server"
-description = "WebSocket server for Murder IDE"
+description = "WebSocket server for crow-ui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

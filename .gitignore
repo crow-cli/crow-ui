@@ -3,3 +3,4 @@ frontend/test-results
 target
 electron/node_modules
 electron/dist
+electron/out
