@@ -132,32 +132,17 @@ impl Settings {
     }
 
     /// Return all resolved settings as a nested JSON object.
-    /// Merges workspace → user → default layers, then unflattens.
+    /// Unflattens each layer then deep-merges: default < user < workspace.
     pub fn to_nested(&self) -> Value {
-        let merged = self.merge_all();
-        unflatten_value(&merged)
+        let default_nested = unflatten_value(&self.default_layer);
+        let user_nested = unflatten_value(&self.user_layer);
+        let ws_nested = unflatten_value(&self.workspace_layer);
+        deep_merge_values(&deep_merge_values(&default_nested, &user_nested), &ws_nested)
     }
 
     /// Return all resolved settings as a flat JSON object.
     pub fn to_flat(&self) -> Value {
-        self.merge_all()
-    }
-
-    fn merge_all(&self) -> Value {
-        let mut merged = self.default_layer.clone();
-        if let Value::Object(ref mut map) = merged {
-            if let Value::Object(user) = &self.user_layer {
-                for (k, v) in user {
-                    map.insert(k.clone(), v.clone());
-                }
-            }
-            if let Value::Object(ws) = &self.workspace_layer {
-                for (k, v) in ws {
-                    map.insert(k.clone(), v.clone());
-                }
-            }
-        }
-        merged
+        flatten_value(&self.to_nested())
     }
 
     /// Register a callback that fires when the effective value of `key`
@@ -227,6 +212,56 @@ impl Settings {
 fn set_in_layer(layer: &mut Value, key: &str, value: Value) {
     if let Some(obj) = layer.as_object_mut() {
         obj.insert(key.to_owned(), value);
+    }
+}
+
+/// Deep-merge two JSON Values. Objects are merged recursively; all other
+/// types (including Arrays) are overwritten by the overlay.
+fn deep_merge_values(base: &Value, overlay: &Value) -> Value {
+    match (base, overlay) {
+        (Value::Object(base_map), Value::Object(overlay_map)) => {
+            let mut result = base_map.clone();
+            for (k, v) in overlay_map {
+                let merged = if let Some(base_val) = base_map.get(k) {
+                    deep_merge_values(base_val, v)
+                } else {
+                    v.clone()
+                };
+                result.insert(k.clone(), merged);
+            }
+            Value::Object(result)
+        }
+        _ => overlay.clone(),
+    }
+}
+
+/// Flatten a nested JSON object into dot-notation keys.
+fn flatten_value(nested: &Value) -> Value {
+    let mut result = serde_json::Map::new();
+    if let Value::Object(map) = nested {
+        for (k, v) in map {
+            flatten_into(k, v, &mut result, "");
+        }
+    }
+    Value::Object(result)
+}
+
+fn flatten_into(prefix: &str, value: &Value, out: &mut serde_json::Map<String, Value>, parent: &str) {
+    let key = if parent.is_empty() {
+        prefix.to_owned()
+    } else {
+        format!("{}.{}", parent, prefix)
+    };
+    if let Value::Object(map) = value {
+        if map.is_empty() {
+            out.insert(key, value.clone());
+            return;
+        }
+        for (k, v) in map {
+            flatten_into(k, v, out, &key);
+        }
+    } else {
+        out.insert(key, value.clone());
     }
 }
 
@@ -330,5 +365,28 @@ mod tests {
         let s = Settings::new();
         let theme: String = s.get("workbench.colorTheme").unwrap();
         assert_eq!(theme, "Default Dark+");
+    }
+
+    #[test]
+    fn nested_user_layer_overrides_flat_default() {
+        let mut s = Settings::new();
+        // Default has editor.wordWrap = "off" (flat)
+        assert_eq!(s.get::<String>("editor.wordWrap").unwrap(), "off");
+
+        // Load a nested user layer (as the JSON file stores it)
+        let user = json!({"editor": {"wordWrap": "on", "fontSize": 18}});
+        s.user_layer = user;
+
+        // Flat lookup should still work
+        assert_eq!(s.get::<String>("editor.wordWrap").unwrap(), "on");
+        assert_eq!(s.get::<i64>("editor.fontSize").unwrap(), 18);
+
+        // to_nested must preserve the override and not thrash
+        let nested = s.to_nested();
+        let editor = nested.get("editor").unwrap().as_object().unwrap();
+        assert_eq!(editor.get("wordWrap").unwrap(), "on");
+        assert_eq!(editor.get("fontSize").unwrap(), 18);
+        // Other default keys must still be present
+        assert!(editor.contains_key("tabSize"));
     }
 }
