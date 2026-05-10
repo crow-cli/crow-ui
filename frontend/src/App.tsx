@@ -765,6 +765,23 @@ export default function App() {
     return () => window.removeEventListener("editor-close-tab", handler);
   }, [closeTab]);
 
+  // Listen for worktree file change events — update Monaco models when agent/terminal modifies files
+  useEffect(() => {
+    return ws.onWorktreeEvent((method, params) => {
+      if (method === "worktree-file-changed" || method === "worktree-file-created") {
+        const path = params.path as string;
+        const newContent = params.new_content as string;
+        if (path && newContent !== undefined) {
+          try {
+            setModelContent(path, newContent, getLanguage(path));
+          } catch {
+            // Monaco may not be initialized yet
+          }
+        }
+      }
+    });
+  }, []);
+
   // Debounced layout save — write flexlayout JSON to backend SQLite
   const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveLayout = useCallback((modelJson: IJsonModel) => {

@@ -25,6 +25,7 @@ import {
 import { groupNotifications, mergeToolCalls } from "../lib/acp-utils";
 import * as acpStore from "../lib/acp-store";
 import { getCachedFile, cacheFile } from "../lib/file-cache";
+import { ws } from "../lib/ws-client";
 import InlineTerminal from "./InlineTerminal";
 import { FileReadView, FileWriteView, FileEditView } from "./FileViews";
 import { WebFetchView, WebSearchView } from "./WebViews";
@@ -147,38 +148,14 @@ export default function ChatSessionBody({
           const status = tool.status || "";
           if (status !== "completed") continue;
 
-          if (!["read", "write", "edit"].includes(effectiveKind)) continue;
-
           const toolCallId = tool.toolCallId;
           if (fetchedFiles.has(toolCallId)) continue;
 
           const filePath = extractFilePath(tool);
           if (!filePath) continue;
 
-          if (effectiveKind === "edit") {
-            const beforeContent = getCachedFile(filePath);
-            if (!beforeContent) {
-              fetchFile(client, filePath, toolCallId, "read");
-              continue;
-            }
-            client
-              .wsInvoke("read_file", { path: filePath })
-              .then((result: any) => {
-                const afterContent = result.content as string;
-                cacheFile(filePath, afterContent);
-                setFetchedFiles((prev) => {
-                  const next = new Map(prev);
-                  next.set(toolCallId, {
-                    path: filePath,
-                    content: afterContent,
-                    beforeContent,
-                  });
-                  return next;
-                });
-                if (onFileChanged) onFileChanged(filePath, afterContent);
-              })
-              .catch(() => {});
-          } else if (effectiveKind === "read") {
+          // Only fetch for read tools without embedded content
+          if (effectiveKind === "read") {
             const embeddedContent = extractContentFromTool(tool);
             if (embeddedContent) {
               cacheFile(filePath, embeddedContent);
@@ -190,13 +167,21 @@ export default function ChatSessionBody({
                 });
                 return next;
               });
-              if (onFileChanged) onFileChanged(filePath, embeddedContent);
             } else {
-              fetchFile(client, filePath, toolCallId, kind);
+              ws.invoke("read_file", { path: filePath })
+                .then((result: any) => {
+                  const content = result.content as string;
+                  cacheFile(filePath, content);
+                  setFetchedFiles((prev) => {
+                    const next = new Map(prev);
+                    next.set(toolCallId, { path: filePath, content });
+                    return next;
+                  });
+                })
+                .catch(() => {});
             }
-          } else {
-            fetchFile(client, filePath, toolCallId, kind);
           }
+          // Write/edit: diff content is in tool.content directly
         }
       } catch {
         // ignore
@@ -224,31 +209,6 @@ export default function ChatSessionBody({
     }
     return null;
   }
-
-  const fetchFile = useCallback(
-    (
-      client: any,
-      filePath: string,
-      toolCallId: string,
-      kind: string,
-      beforeContent?: string,
-    ) => {
-      client
-        .wsInvoke("read_file", { path: filePath })
-        .then((result: any) => {
-          const content = result.content as string;
-          cacheFile(filePath, content);
-          setFetchedFiles((prev) => {
-            const next = new Map(prev);
-            next.set(toolCallId, { path: filePath, content, beforeContent });
-            return next;
-          });
-          if (onFileChanged) onFileChanged(filePath, content);
-        })
-        .catch(() => {});
-    },
-    [onFileChanged],
-  );
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || connectionStatus !== "ready") return;
@@ -610,9 +570,18 @@ function ToolCallAccordion({
   const isWebFetch = kind === "fetch" || tool.toolName === "web_fetch";
   const isWebSearch = kind === "search" || tool.toolName === "web_search";
 
-  let fileContent = fetchedFile?.content;
-  const beforeContent = fetchedFile?.beforeContent;
-  const filePath = fetchedFile?.path || title;
+  // Extract diff content directly from ACP notification (write/edit tools)
+  const diffContent = tool.content?.find((c: any) => c.type === "diff");
+  const oldTextValue = diffContent?.oldText ?? diffContent?.old_text ?? undefined;
+  const hasOldTextContent =
+    oldTextValue !== undefined && oldTextValue !== null && oldTextValue !== "";
+  const diffNewText = diffContent?.newText ?? diffContent?.new_text ?? "";
+  const diffPath = diffContent?.path ?? "";
+
+  let fileContent = diffNewText || fetchedFile?.content;
+  let beforeContent =
+    oldTextValue !== undefined ? oldTextValue : fetchedFile?.beforeContent;
+  const filePath = diffPath || fetchedFile?.path || title;
 
   if (!fileContent && rawOutput) {
     if (typeof rawOutput === "string") fileContent = rawOutput;
@@ -648,9 +617,14 @@ function ToolCallAccordion({
   const isTerminal =
     (inferredKind === "execute" || kind === "execute") && terminalId;
   const isRead = inferredKind === "read";
-  const isWrite = inferredKind === "write" || inferredKind === "create";
   const hasDiffContent = tool.content?.some((c: any) => c.type === "diff");
-  const isEdit = inferredKind === "edit" || hasDiffContent;
+  const isWrite =
+    inferredKind === "write" ||
+    inferredKind === "create" ||
+    (hasDiffContent && !hasOldTextContent);
+  const isEdit =
+    (inferredKind === "edit" && hasOldTextContent) ||
+    (hasDiffContent && hasOldTextContent);
 
   const statusVariant =
     status === "completed"
@@ -708,7 +682,15 @@ function ToolCallAccordion({
                   {filePath}
                 </code>
               </div>
-              <FileWriteView content={fileContent} path={filePath} />
+              {beforeContent && beforeContent !== fileContent ? (
+                <FileEditView
+                  beforeContent={beforeContent}
+                  afterContent={fileContent}
+                  path={filePath}
+                />
+              ) : (
+                <FileWriteView content={fileContent} path={filePath} />
+              )}
             </div>
           )}
 

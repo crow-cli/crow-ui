@@ -43,6 +43,7 @@ export class WsClient {
   private rawMessageHandlers = new Set<(event: MessageEvent) => void>();
   private settingsHandlers = new Set<(key: string) => void>();
   private acpCommandHandlers = new Set<(method: string, params: Record<string, unknown>) => void>();
+  private worktreeHandlers = new Set<(method: string, params: Record<string, unknown>) => void>();
 
   constructor(private url: string) {}
 
@@ -120,6 +121,10 @@ export class WsClient {
       for (const handler of this.acpCommandHandlers) {
         handler(method, params);
       }
+    } else if (method.startsWith("worktree-file-")) {
+      for (const handler of this.worktreeHandlers) {
+        handler(method, params);
+      }
     }
   }
 
@@ -136,6 +141,11 @@ export class WsClient {
   onAcpCommand(handler: (method: string, params: Record<string, unknown>) => void): () => void {
     this.acpCommandHandlers.add(handler);
     return () => this.acpCommandHandlers.delete(handler);
+  }
+
+  onWorktreeEvent(handler: (method: string, params: Record<string, unknown>) => void): () => void {
+    this.worktreeHandlers.add(handler);
+    return () => this.worktreeHandlers.delete(handler);
   }
 
   /** Subscribe to raw WebSocket messages (before JSON parsing). */

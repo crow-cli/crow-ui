@@ -187,6 +187,47 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
             worktree_event = worktree_rx.recv() => {
                 match worktree_event {
                     Ok(json) => {
+                        // Update document model if file is open — keeps backend model in sync
+                        // with external changes (e.g. MCP edit tool writing directly to disk)
+                        if let Ok(event) = serde_json::from_str::<Value>(&json) {
+                            if event["method"].as_str() == Some("worktree-file-changed")
+                                || event["method"].as_str() == Some("worktree-file-created")
+                            {
+                                if let (Some(path), Some(new_content)) = (
+                                    event["params"]["path"].as_str(),
+                                    event["params"]["new_content"].as_str(),
+                                ) {
+                                    {
+                                        let state = app.lock().await;
+                                        let mut doc_entry = state.documents.get_mut(path);
+                                        if let Some(ref mut entry) = doc_entry {
+                                            let model = entry.value_mut();
+                                            let line_count = model.line_count();
+                                            if line_count == 0 {
+                                                let edit = crow_ui_text::EditOperation::insert(
+                                                    crow_ui_text::Position::new(0, 0),
+                                                    new_content.to_string(),
+                                                );
+                                                model.apply_edit(&edit);
+                                            } else {
+                                                let last_line = line_count - 1;
+                                                let last_col = model.buffer.get_line_length(last_line);
+                                                let edit = crow_ui_text::EditOperation::replace(
+                                                    crow_ui_text::Range::new(
+                                                        crow_ui_text::Position::new(0, 0),
+                                                        crow_ui_text::Position::new(last_line, last_col),
+                                                    ),
+                                                    new_content.to_string(),
+                                                );
+                                                model.apply_edit(&edit);
+                                            }
+                                            model.mark_saved();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if let Err(e) = socket.send(Message::Text(json)).await {
                             tracing::warn!("Failed to push worktree event: {e}");
                             break;
@@ -383,8 +424,8 @@ async fn handle_message(text: &str, app: &App) -> Value {
 
         // Filesystem methods (async, no state needed)
         "read_dir" => handlers::handle_read_dir(&request.params).await,
-        "read_file" => handlers::handle_read_file(&request.params).await,
-        "write_file" => handlers::handle_write_file(&request.params).await,
+        "read_file" => handlers::handle_read_file(&state, &request.params).await,
+        "write_file" => handlers::handle_write_file(&state, &request.params).await,
         "exists" => handlers::handle_exists(&request.params).await,
         "mkdir" => handlers::handle_mkdir(&request.params).await,
         "remove" => handlers::handle_remove(&request.params).await,

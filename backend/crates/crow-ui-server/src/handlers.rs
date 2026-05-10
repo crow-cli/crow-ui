@@ -13,7 +13,25 @@ use crow_ui_text::{EditOperation, Position, Range, TextModel};
 
 pub fn handle_document_open(state: &AppState, params: &Value) -> Result<Value, String> {
     let path = params["path"].as_str().ok_or("missing 'path'")?;
-    let content = params["content"].as_str().ok_or("missing 'content'")?.to_string();
+
+    // If document already exists, return it — don't overwrite with potentially stale content
+    if let Some(entry) = state.documents.get(path) {
+        let model = entry.value();
+        return Ok(json!({
+            "content": model.get_full_content(),
+            "encoding": model.encoding.label().to_string(),
+            "line_ending": model.line_ending.to_string(),
+            "language_id": model.language_id,
+            "version": model.version,
+            "is_dirty": model.is_dirty,
+            "is_readonly": model.is_readonly,
+            "is_large_file": model.is_large_file,
+            "line_count": model.line_count(),
+        }));
+    }
+
+    // Read from disk — frontend may send empty placeholder content before fetching
+    let content = std::fs::read_to_string(path).unwrap_or_default();
 
     let language_id = detect_language(path);
     let uri = format!("file://{path}");
@@ -189,21 +207,67 @@ pub async fn handle_read_dir(params: &Value) -> Result<Value, String> {
     Ok(json!({ "entries": result }))
 }
 
-pub async fn handle_read_file(params: &Value) -> Result<Value, String> {
+pub async fn handle_read_file(state: &AppState, params: &Value) -> Result<Value, String> {
     let path = params["path"].as_str().ok_or("missing 'path'")?;
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|e| e.to_string())?;
+
+    // Check document model first (includes unsaved/dirty editor content)
+    let content = if let Some(entry) = state.documents.get(path) {
+        entry.value().get_full_content()
+    } else {
+        tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| e.to_string())?
+    };
+
+    // Handle line/limit parameters
+    let content = if params["line"].is_number() || params["limit"].is_number() {
+        let start_line = params["line"].as_u64().unwrap_or(1).saturating_sub(1) as usize;
+        let lines: Vec<&str> = content.split('\n').collect();
+        let end_line = if params["limit"].is_number() {
+            start_line + params["limit"].as_u64().unwrap_or(0) as usize
+        } else {
+            lines.len()
+        };
+        lines.get(start_line..end_line.min(lines.len())).unwrap_or(&[]).join("\n")
+    } else {
+        content
+    };
+
     Ok(json!({ "content": content }))
 }
 
-pub async fn handle_write_file(params: &Value) -> Result<Value, String> {
+pub async fn handle_write_file(state: &AppState, params: &Value) -> Result<Value, String> {
     let path = params["path"].as_str().ok_or("missing 'path'")?;
     let content = params["content"].as_str().ok_or("missing 'content'")?;
+
+    // Record change for diff views
+    let old_content = state.worktree_state.lock().record_write(Path::new(path), content);
+
+    // Write to disk
     tokio::fs::write(path, content)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(json!({ "success": true }))
+
+    // If document is open, update it and mark saved
+    if let Some(mut entry) = state.documents.get_mut(path) {
+        let model = entry.value_mut();
+        let line_count = model.line_count();
+        if line_count == 0 {
+            let edit = crow_ui_text::EditOperation::insert(crow_ui_text::Position::new(0, 0), content.to_string());
+            model.apply_edit(&edit);
+        } else {
+            let last_line = line_count - 1;
+            let last_col = model.buffer.get_line_length(last_line);
+            let edit = crow_ui_text::EditOperation::replace(
+                crow_ui_text::Range::new(crow_ui_text::Position::new(0, 0), crow_ui_text::Position::new(last_line, last_col)),
+                content.to_string(),
+            );
+            model.apply_edit(&edit);
+        }
+        model.mark_saved();
+    }
+
+    Ok(json!({ "success": true, "old_content": old_content }))
 }
 
 pub async fn handle_exists(params: &Value) -> Result<Value, String> {

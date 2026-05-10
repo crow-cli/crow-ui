@@ -142,7 +142,9 @@ impl WorktreeState {
     pub fn record_write(&self, path: &Path, new_content: &str) -> Option<String> {
         let mut inner = self.inner.write();
 
-        let old_content = inner.content_cache.get(path).cloned();
+        // Check cache first, fall back to disk
+        let old_content = inner.content_cache.get(path).cloned()
+            .or_else(|| std::fs::read_to_string(path).ok());
 
         // Record the change
         if let Some(ref old) = old_content {

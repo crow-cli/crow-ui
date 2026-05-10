@@ -1,15 +1,14 @@
 /**
  * Global file content cache — tracks known content of files the agent has
- * touched. Used to render diffs for edit tool calls.
+ * touched. Used to render diffs for edit/write tool calls.
  *
  * Flow:
  *   1. Agent reads file  → cache[path] = content (we know the full file)
- *   2. Agent writes file → cache[path] = old_content (we know what it was)
- *   3. Agent edits file  → use cached "before" to render full diff
+ *   2. Agent writes file → we fetch old_content from backend worktree state
+ *   3. Agent edits file  → use cached "before" or backend worktree state
  *
- * This mirrors how Zed snapshots the full buffer before edits:
- *   Zed: buffer.read(cx).text_snapshot() → base_text
- *   Us:  fileCache.get(path) → beforeContent
+ * Backend worktree_state is the source of truth for old_content. This cache
+ * is a frontend convenience that reduces round-trips.
  */
 
 interface FileEntry {

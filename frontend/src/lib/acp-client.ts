@@ -44,7 +44,7 @@ import {
 } from "@agentclientprotocol/sdk";
 
 import { cacheFile } from "./file-cache";
-import { getModelContent } from "../components/EditorPane";
+import { getModelContent, setModelContent } from "../components/EditorPane";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -407,6 +407,9 @@ export class AcpClient {
           // user sees, not what's on disk.
           const modelContent = getModelContent(params.path);
           if (modelContent !== null) {
+            // Cache the FULL content for accurate diff rendering later
+            cacheFile(params.path, modelContent);
+
             const lines = modelContent.split("\n");
             let content = modelContent;
             // Handle line/limit params (agent may request a range)
@@ -417,8 +420,6 @@ export class AcpClient {
             } else if (params.limit) {
               content = lines.slice(0, params.limit).join("\n");
             }
-            // Update cache so downstream code knows about this content
-            cacheFile(params.path, content);
             return { content };
           }
 
@@ -429,7 +430,8 @@ export class AcpClient {
             limit: params.limit,
           });
           const content = result.content as string;
-          // Cache full content only when reading from line 1 with no limit
+          // Cache full content only when reading from line 1 with no limit.
+          // Partial reads shouldn't pollute the cache with sliced content.
           if (!params.line || params.line === 1) {
             cacheFile(params.path, content);
           }
@@ -448,6 +450,13 @@ export class AcpClient {
         });
         // Cache new content after write (for future diff rendering)
         cacheFile(params.path, params.content);
+        // Update Monaco model so subsequent reads see the new content immediately.
+        // This keeps the agent's read/write capabilities in sync with the IDE.
+        try {
+          setModelContent(params.path, params.content, detectLanguage(params.path));
+        } catch {
+          // Monaco may not be loaded yet — cache is the fallback
+        }
         return {};
       },
 
@@ -571,4 +580,40 @@ export class AcpClient {
   private associateTerminal(toolCallId: string, terminalId: string) {
     this.toolCallTerminalMap.set(toolCallId, terminalId);
   }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function detectLanguage(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    rs: "rust",
+    ts: "typescript",
+    tsx: "typescriptreact",
+    js: "javascript",
+    jsx: "javascriptreact",
+    py: "python",
+    go: "go",
+    java: "java",
+    c: "c",
+    cpp: "cpp",
+    cs: "csharp",
+    css: "css",
+    html: "html",
+    json: "json",
+    md: "markdown",
+    yml: "yaml",
+    yaml: "yaml",
+    toml: "toml",
+    sh: "shell",
+    sql: "sql",
+    php: "php",
+    swift: "swift",
+    kt: "kotlin",
+    lua: "lua",
+    rb: "ruby",
+    r: "r",
+    dart: "dart",
+  };
+  return map[ext] || "plaintext";
 }
