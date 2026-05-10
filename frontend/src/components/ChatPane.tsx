@@ -79,12 +79,12 @@ export default function ChatPane({
     return unsub;
   }, [sessionId]);
 
-  // Create session when workspace becomes available
+  // Create session when workspace becomes available (defensive: for page refresh)
   useEffect(() => {
     if (!workspaceRoot || !agentConfig) return;
     const s = acpStore.getSession(sessionId);
     if (!s.agentConfig) {
-      acpStore.createSession(sessionId, agentConfig, workspaceRoot);
+      acpStore.createSession(agentConfig, workspaceRoot, sessionId).catch(console.error);
     }
   }, [sessionId, workspaceRoot, agentConfig]);
 

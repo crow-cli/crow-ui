@@ -171,15 +171,20 @@ const ChatTile = memo(function ChatTile({
   }, [tabs, activeIndex, tileId]);
 
   // ── Start a session (connect client) ──────────────────────────────────
-  const startSession = useCallback((sessionId: string) => {
+  const startSession = useCallback(async (sessionId: string) => {
     if (!workspaceRootRef.current) return;
     // Only create if it doesn't already exist (e.g. on first mount)
     if (!acpStore.getSession(sessionId).agentConfig) {
-      acpStore.createSession(
-        sessionId,
-        agentConfigRef.current,
-        workspaceRootRef.current,
-      );
+      try {
+        await acpStore.createSession(
+          agentConfigRef.current,
+          workspaceRootRef.current,
+          sessionId,
+        );
+      } catch (err) {
+        console.error(`[ChatTile] Failed to start session ${sessionId}:`, err);
+        return;
+      }
     }
     setTabs((prev) =>
       prev.map((t) =>

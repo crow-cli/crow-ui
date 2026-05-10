@@ -252,73 +252,75 @@ export default function App() {
 
   // Subscribe to backend ACP control commands
   useEffect(() => {
-    return ws.onAcpCommand((method, params) => {
+    return ws.onAcpCommand(async (method, params) => {
       if (method === "acp-command-new-session") {
         const requestId = params.requestId as string;
-        const sessionId = `session-${Date.now()}`;
         // Use current workspace and agent config
         if (workspaceRoot && agentConfigRef.current) {
-          acpStore.createSession(sessionId, agentConfigRef.current, workspaceRoot);
+          try {
+            const sessionId = await acpStore.createSession(
+              agentConfigRef.current,
+              workspaceRoot,
+            );
 
-          // Open a chat tab for this session
-          const model = layoutModelRef.current;
-          if (model) {
-            const chatId = `chat-${Date.now()}`;
-            let targetNode = model.getNodeById("chat-tabset");
-            if (!targetNode) {
-              model.visitNodes((node) => {
-                if (node.getType() === "tabset") {
-                  const children = node.getChildren();
-                  if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === "chat")) {
-                    targetNode = node;
-                    return false;
+            // Open a chat tab for this session
+            const model = layoutModelRef.current;
+            if (model) {
+              const chatId = `chat-${Date.now()}`;
+              let targetNode = model.getNodeById("chat-tabset");
+              if (!targetNode) {
+                model.visitNodes((node) => {
+                  if (node.getType() === "tabset") {
+                    const children = node.getChildren();
+                    if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === "chat")) {
+                      targetNode = node;
+                      return false;
+                    }
                   }
-                }
-                return true;
-              });
-            }
-            if (targetNode) {
-              model.doAction(
-                Actions.addTab(
-                  { type: "tab", name: "Agent Chat", component: "chat", config: { sessionId }, id: chatId },
-                  targetNode.getId(),
-                  DockLocation.CENTER,
-                  -1,
-                  true,
-                ),
-              );
-            } else {
-              const editorTabset = model.getNodeById("editor-tabset");
-              if (editorTabset) {
-                const centerRow = editorTabset.getParent();
-                if (centerRow && centerRow.getType() === "row") {
-                  model.doAction(
-                    Actions.addNode(
-                      { type: "tab", name: "Agent Chat", component: "chat", config: { sessionId }, id: chatId },
-                      centerRow.getId(),
-                      DockLocation.RIGHT,
-                      -1,
-                      true,
-                    ),
-                  );
+                  return true;
+                });
+              }
+              if (targetNode) {
+                model.doAction(
+                  Actions.addTab(
+                    { type: "tab", name: "Agent Chat", component: "chat", config: { sessionId }, id: chatId },
+                    targetNode.getId(),
+                    DockLocation.CENTER,
+                    -1,
+                    true,
+                  ),
+                );
+              } else {
+                const editorTabset = model.getNodeById("editor-tabset");
+                if (editorTabset) {
+                  const centerRow = editorTabset.getParent();
+                  if (centerRow && centerRow.getType() === "row") {
+                    model.doAction(
+                      Actions.addNode(
+                        { type: "tab", name: "Agent Chat", component: "chat", config: { sessionId }, id: chatId },
+                        centerRow.getId(),
+                        DockLocation.RIGHT,
+                        -1,
+                        true,
+                      ),
+                    );
+                  }
                 }
               }
             }
-          }
 
-          // Report back to backend when session is ready
-          const checkReady = setInterval(() => {
-            const client = acpStore.getClient(sessionId);
-            if (client?.activeSessionId) {
-              clearInterval(checkReady);
-              ws.invoke("acp_report_session_created", {
-                requestId,
-                result: { sessionId },
-              }).catch(console.error);
-            }
-          }, 100);
-          // Timeout after 25s
-          setTimeout(() => clearInterval(checkReady), 25000);
+            // Report the REAL session ID back to backend
+            ws.invoke("acp_report_session_created", {
+              requestId,
+              result: { sessionId },
+            }).catch(console.error);
+          } catch (err) {
+            console.error("[App] Failed to create session:", err);
+            ws.invoke("acp_report_session_created", {
+              requestId,
+              result: { error: String(err) },
+            }).catch(console.error);
+          }
         }
       } else if (method === "acp-command-prompt") {
         const sessionId = params.sessionId as string;
@@ -558,14 +560,20 @@ export default function App() {
       }
     });
 
-    setGlobalOpenChat(() => {
+    setGlobalOpenChat(async () => {
       if (!layoutModelRef.current) return;
       const model = layoutModelRef.current;
       const chatId = `chat-${Date.now()}`;
-      const sessionId = `session-${Date.now()}`;
-      if (workspaceRootRef.current) {
-        acpStore.createSession(sessionId, agentConfigRef.current, workspaceRootRef.current);
+      let sessionId: string | null = null;
+      if (workspaceRootRef.current && agentConfigRef.current) {
+        try {
+          sessionId = await acpStore.createSession(agentConfigRef.current, workspaceRootRef.current);
+        } catch (err) {
+          console.error("[App] Failed to create chat session:", err);
+          return;
+        }
       }
+      if (!sessionId) return;
 
       // Find an existing chat tabset, or create one in the right place
       let targetId = "chat-tabset";
@@ -1081,7 +1089,7 @@ export default function App() {
   // Split tab — creates a new tabset next to the current one
   // Uses Actions.addNode with DockLocation.RIGHT/LEFT which auto-wraps in a new TabSetNode
   const splitTab = useCallback(
-    (direction: "right" | "left" | "down" | "up", nodeId: string) => {
+    async (direction: "right" | "left" | "down" | "up", nodeId: string) => {
       const model = layoutModelRef.current;
       if (!model) return;
       const tabNode = model.getNodeById(nodeId);
@@ -1101,11 +1109,17 @@ export default function App() {
       let newConfig: any = {};
       let newName = tabName;
       if (component === "chat") {
-        const sessionId = `session-${Date.now()}`;
-        if (workspaceRootRef.current) {
-          acpStore.createSession(sessionId, agentConfigRef.current, workspaceRootRef.current);
+        if (workspaceRootRef.current && agentConfigRef.current) {
+          try {
+            const sessionId = await acpStore.createSession(
+              agentConfigRef.current,
+              workspaceRootRef.current,
+            );
+            newConfig = { sessionId };
+          } catch (err) {
+            console.error("[App] Failed to create split session:", err);
+          }
         }
-        newConfig = { sessionId };
         newName = "Agent Chat";
       } else {
         // For other tabs, clone the config

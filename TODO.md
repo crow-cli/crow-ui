@@ -146,3 +146,5 @@
 - Some dead code from mosaic→flexlayout migration
 - `murder-ide-v2` directory still exists with broken rebrand attempt — `murder-ide-working` is canonical
 - `AGENTS.md` grew too large — keep concise, move detailed docs to `docs/` journal entries
+
+- be super cool
