@@ -38,6 +38,11 @@
 - ✅ PTY spawn via backend, rendering in frontend
 - ✅ Shell environment resolution: `~/.bashrc` PATH/fnm/nvm injected into PTYs, agents, and exec commands
 
+### Session Management
+- ✅ ACP session IDs are REAL agent session IDs (not made-up `session-${Date.now()}`)
+- ✅ `POST /api/acp/sessions` returns the actual agent session ID
+- ✅ `acpStore.createSession()` returns real ID; store key separation for UI components
+
 ### Visual Polish
 - ✅ Dot pattern / textured background overlay
 - ✅ Proper padding throughout chat and explorer

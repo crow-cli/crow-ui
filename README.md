@@ -49,28 +49,15 @@ Pretty solid setup. It's essentially a lightweight VS Code alternative built spe
 
 
 
+# Backend control of ACP Client
 
-"crow-mcp-vision": {
-    /// The command which runs the MCP server
-    "command": "uv",
-    /// The arguments to pass to the MCP server
-    "args": ["--project","/home/thomas/src/crow-cli/crow-vision-mcp","run","/home/thomas/src/crow-cli/crow-vision-mcp/main.py"],
-    /// The environment variables to set
-    "env": {}
-  }
+## Create session (blocks up to 30s waiting for frontend to respond)
+curl -X POST http://localhost:3928/api/acp/sessions
 
+## Send prompt (fire-and-forget)
+curl -X POST http://localhost:3928/api/acp/sessions/<session_id>/prompt \
+  -H "Content-Type: application/json" \
+  -d '{"blocks": [{"type": "text", "text": "hello"}]}'
 
-
-{
-  /// Configure an MCP server that runs locally via stdin/stdout
-  ///
-  /// The name of your MCP server
-  "playwright-mcp": {
-    /// The command which runs the MCP server
-    "command": "npx",
-    /// The arguments to pass to the MCP server
-    "args": ["@playwright/mcp@0.0.69"],
-    /// The environment variables to set
-    "env": {}
-  }
-}
+## Cancel
+curl -X POST http://localhost:3928/api/acp/sessions/<session_id>/cancel

@@ -15,9 +15,10 @@ interface FileEntry {
 interface ExplorerPaneProps {
   root: string;
   onFileClick: (path: string, isDir: boolean) => void;
+  dirtyFiles?: Set<string>;
 }
 
-export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
+export default function ExplorerPane({ root, onFileClick, dirtyFiles }: ExplorerPaneProps) {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [childCache, setChildCache] = useState<Map<string, FileEntry[]>>(
@@ -465,6 +466,7 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
 
   const renderItem = (entry: FileEntry, depth: number): React.ReactElement => {
     const isEditing = editingPath === entry.path;
+    const isDirty = !entry.is_dir && dirtyFiles?.has(entry.path);
 
     return (
       <div key={entry.path}>
@@ -475,7 +477,9 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
               : onFileClick(entry.path, false)
           }
           onContextMenu={(e) => handleContextMenu(e, entry.path, entry.is_dir)}
-          className="cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors text-text-primary"
+          className={`cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors ${
+            isDirty ? "text-[var(--color-primary)] font-medium" : "text-text-primary"
+          }`}
           style={{
             paddingLeft: 8 + depth * 16,
             paddingRight: 8,
@@ -506,6 +510,9 @@ export default function ExplorerPane({ root, onFileClick }: ExplorerPaneProps) {
             <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1">
               {entry.name}
             </span>
+          )}
+          {isDirty && (
+            <span className="text-[8px] leading-none text-[var(--color-primary)] flex-shrink-0">●</span>
           )}
         </div>
         {entry.is_dir &&

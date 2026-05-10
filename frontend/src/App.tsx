@@ -6,6 +6,7 @@ import {
   TabNode,
   type Node,
   Actions,
+  Action,
   DockLocation,
   type ITabRenderValues,
   type DropInfo,
@@ -221,6 +222,7 @@ export default function App() {
   const workspaceRootRef = useRef(workspaceRoot);
   const savingRef = useRef(saving);
   const agentConfigRef = useRef(agentConfig);
+  const dirtyDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     agentConfigRef.current = agentConfig;
@@ -469,6 +471,12 @@ export default function App() {
 
     setGlobalOpenFile(async (path: string) => {
       const language = getLanguage(path);
+      setOpenFiles((prev) => {
+        if (prev.has(path)) return prev;
+        const next = new Map(prev);
+        next.set(path, { path, language });
+        return next;
+      });
       setModelJson((prev) => {
         if (!prev || !layoutModelRef.current) return prev;
         const model = layoutModelRef.current;
@@ -825,6 +833,28 @@ export default function App() {
           model.setOnAllowDrop(onAllowDrop);
           layoutModelRef.current = model;
           setModelJson(parsed);
+
+          // Populate openFiles from restored editor tabs so dirty tracking works
+          const restoredFiles = new Map<string, OpenFile>();
+          const scan = (node: any) => {
+            if (!node) return;
+            if (node.type === "tab" && node.component === "editor" && node.config?.path) {
+              restoredFiles.set(node.config.path, {
+                path: node.config.path,
+                language: node.config.language || getLanguage(node.config.path),
+              });
+            }
+            if (node.children) {
+              for (const child of node.children) scan(child);
+            }
+          };
+          scan(parsed.layout);
+          for (const border of parsed.borders || []) {
+            scan(border);
+          }
+          if (restoredFiles.size > 0) {
+            setOpenFiles(restoredFiles);
+          }
         } catch {
           // Invalid saved layout, keep default
         }
@@ -847,7 +877,29 @@ export default function App() {
   const handleDirtyChange = useCallback((dirty: boolean) => {
     const af = activeFileRef.current;
     if (!af) return;
-    if (dirty) setDirtyFiles((prev) => new Set(prev).add(af));
+    if (dirtyDebounceTimer.current) {
+      clearTimeout(dirtyDebounceTimer.current);
+      dirtyDebounceTimer.current = null;
+    }
+    if (dirty) {
+      // Debounce: wait 300ms after last keystroke before marking dirty
+      dirtyDebounceTimer.current = setTimeout(() => {
+        setDirtyFiles((prev) => {
+          if (prev.has(af)) return prev;
+          const next = new Set(prev);
+          next.add(af);
+          return next;
+        });
+      }, 300);
+    } else {
+      // Clear dirty immediately on save
+      setDirtyFiles((prev) => {
+        if (!prev.has(af)) return prev;
+        const next = new Set(prev);
+        next.delete(af);
+        return next;
+      });
+    }
   }, []);
 
   const handleMenuAction = useCallback(
@@ -1245,7 +1297,7 @@ export default function App() {
             </div>
           );
         }
-        return <ExplorerPane root={workspaceRoot} onFileClick={handleFileClick} />;
+        return <ExplorerPane root={workspaceRoot} onFileClick={handleFileClick} dirtyFiles={dirtyFiles} />;
       }
       case "welcome": {
         return (
@@ -1291,6 +1343,20 @@ export default function App() {
           <Layout
             model={layoutModelRef.current}
             factory={layoutFactory}
+            onAction={(action: Action) => {
+              if (action.type === Actions.SELECT_TAB) {
+                const nodeId = action.data.tabNode;
+                const node = layoutModelRef.current?.getNodeById(nodeId);
+                if (node && node.getType() === "tab") {
+                  const tab = node as TabNode;
+                  if (tab.getComponent() === "editor") {
+                    const path = tab.getConfig()?.path as string;
+                    if (path) setActiveFile(path);
+                  }
+                }
+              }
+              return action;
+            }}
             onModelChange={() => {
               const json = layoutModelRef.current?.toJson();
               if (json) saveLayout(json);

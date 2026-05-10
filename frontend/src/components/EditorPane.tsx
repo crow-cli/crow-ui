@@ -331,7 +331,7 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
 
       // Listen for content changes to track dirty state
       const disposable = model.onDidChangeContent(() => {
-        if (!suppressDirtyRef.current) {
+        if (!suppressDirtyRef.current && !suppressDirtyPaths.has(path)) {
           onDirtyChangeRef.current?.(true);
         }
       });
@@ -342,6 +342,7 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
     return (
       <div
         ref={containerRef}
+        data-testid="monaco-editor"
         className="absolute inset-0"
         style={height ? { height } : undefined}
       />
@@ -378,8 +379,28 @@ export function setModelContent(
     modelRegistry.set(path, model);
   } else {
     monaco.editor.setModelLanguage(model, language);
-    model.setValue(content);
+    // Only update if content actually changed to avoid cursor reset and
+    // spurious dirty-state changes from worktree events after save.
+    if (model.getValue() !== content) {
+      suppressDirtyForPath(path);
+      // Preserve cursor position so worktree updates don't jump the cursor
+      const editors = monaco.editor.getEditors();
+      const editor = editors.find((e) => e.getModel() === model);
+      const savedPos = editor?.getPosition();
+      model.setValue(content);
+      if (editor && savedPos) {
+        editor.setPosition(savedPos);
+      }
+    }
   }
+}
+
+/** Track which paths should suppress dirty changes on next content update */
+const suppressDirtyPaths = new Set<string>();
+
+function suppressDirtyForPath(path: string): void {
+  suppressDirtyPaths.add(path);
+  setTimeout(() => suppressDirtyPaths.delete(path), 100);
 }
 
 /** Utility: mark a model as clean (saved) */

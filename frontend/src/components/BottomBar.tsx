@@ -131,7 +131,7 @@ export default function BottomBar({
           {connected ? "✓" : "○"}{" "}
           {saving ? "Saving…" : workspaceName || "No Directory"}
         </span>
-        {dirty && <span className="text-accent text-sm leading-none">●</span>}
+        {dirty && <span data-testid="dirty-dot" className="text-accent text-sm leading-none">●</span>}
       </div>
 
       {/* Right: status info + minimize toggles + explorer */}
