@@ -1,1 +1,0 @@
-Ordoliberalism is a German economic school that advocates for a strong state to enforce market competition, prevent monopolies, and maintain a rules-based framework—social market economy rather than laissez-faire capitalism—but succumbs to the same microeconomic fallacies as bog standard orthodox econ positions do.

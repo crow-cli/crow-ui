@@ -511,6 +511,7 @@ fn add_explorer_defaults(m: &mut Map<String, Value>) {
     ins(m, "explorer.fileNesting.expand", json!(true));
     ins(m, "explorer.backgroundColor", json!("#1e1e3f"));
     ins(m, "explorer.backgroundOpacity", json!(1.0));
+    ins(m, "explorer.showHiddenFiles", json!(true));
 }
 
 #[allow(clippy::too_many_lines)]

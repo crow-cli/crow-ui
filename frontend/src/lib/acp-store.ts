@@ -20,8 +20,6 @@ interface SessionState {
   client: AcpClient | null;
   status: ConnectionStatus;
   sessionInfo: SessionInfo | null;
-  /** The REAL session ID returned by the ACP agent (may differ from store key). */
-  agentSessionId: string | null;
   notifications: AcpNotification[];
   pendingPermission: {
     request: any;
@@ -69,85 +67,77 @@ function setSessionState(
 
 // ─── Session lifecycle ───────────────────────────────────────────────────────
 
-/** Initialize the default session (backwards compat).
- *  Returns the store key (same as preferredSessionId if provided, else real agent ID). */
+/** Initialize the default session (backwards compat). */
 export async function initialize(config: AgentConfig, cwd: string): Promise<string> {
   const sessionId = await createSession(config, cwd);
   defaultSessionId = sessionId;
   return sessionId;
 }
 
-/** Create a session, connect to the agent, and return the store key.
- *  If preferredSessionId is provided, uses it as the store key so callers
- *  (ChatPane, ChatTile) can continue using their prop as the key.
- *  The REAL agent session ID is stored in state.agentSessionId. */
+/** Create a session, connect to the agent, and return the real session ID. */
 export async function createSession(
   config: AgentConfig,
   cwd: string,
-  preferredSessionId?: string,
 ): Promise<string> {
-  const storeKey = preferredSessionId || `pending-${Date.now()}`;
-
-  if (sessions.has(storeKey)) {
-    return storeKey;
-  }
-
-  const state: SessionState = {
-    client: null,
-    status: "disconnected",
-    sessionInfo: null,
-    agentSessionId: null,
-    notifications: [],
-    pendingPermission: null,
-    cwd,
-    agentConfig: config,
-  };
-  sessions.set(storeKey, state);
-
-  if (!defaultSessionId) defaultSessionId = storeKey;
-  notifyMeta();
+    const sessionRef = { current: null as string | null };
 
   const client = new AcpClient({
     agentConfig: config,
     cwd,
     onNotification: (n) => {
-      const s = sessions.get(storeKey);
+      const id = sessionRef.current;
+      if (!id) return;
+      const s = sessions.get(id);
       if (s) {
         s.notifications = [...s.notifications, n];
-        notifySession(storeKey);
+        notifySession(id);
       }
     },
     onStatusChange: (s2) => {
-      setSessionState(storeKey, { status: s2 });
+      const id = sessionRef.current;
+      if (!id) return;
+      setSessionState(id, { status: s2 });
     },
     onPermissionRequest: (req, resolve, reject) => {
-      setSessionState(storeKey, {
+      const id = sessionRef.current;
+      if (!id) return;
+      setSessionState(id, {
         pendingPermission: { request: req, resolve, reject },
       });
     },
   });
 
-  state.client = client;
   (window as any).__acp_client = client;
 
   try {
     const info = await client.connect();
-    const realSessionId = info.sessionId;
+    const sessionId = info.sessionId;
 
-    state.sessionInfo = info;
-    state.status = "ready";
-    state.agentSessionId = realSessionId;
-    notifySession(storeKey);
+    if (sessions.has(sessionId)) {
+      client.disconnect().catch(() => {});
+      return sessionId;
+    }
 
-    // Return the real agent session ID when no preferred key was given,
-    // so API callers get the actual ACP session ID.
-    return preferredSessionId ? storeKey : realSessionId;
+    sessionRef.current = sessionId;
+
+    const state: SessionState = {
+      client,
+      status: "ready",
+      sessionInfo: info,
+      notifications: [],
+      pendingPermission: null,
+      cwd,
+      agentConfig: config,
+    };
+    sessions.set(sessionId, state);
+
+    if (!defaultSessionId) defaultSessionId = sessionId;
+    notifyMeta();
+    notifySession(sessionId);
+    return sessionId;
   } catch (err) {
     console.error(`[acp-store] Session connect failed:`, err);
-    sessions.delete(storeKey);
-    sessionSubscribers.delete(storeKey);
-    if (defaultSessionId === storeKey) defaultSessionId = null;
-    notifyMeta();
+    client.disconnect().catch(() => {});
     throw err;
   }
 }
@@ -225,7 +215,6 @@ export function getSession(sessionId: string): SessionState {
       client: null,
       status: "disconnected",
       sessionInfo: null,
-      agentSessionId: null,
       notifications: [],
       pendingPermission: null,
       cwd: "",

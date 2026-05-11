@@ -508,8 +508,12 @@ async fn handle_message(text: &str, app: &App) -> Value {
 /// HTTP handler: POST /api/acp/sessions
 /// Creates a new ACP session synchronously.
 /// Broadcasts acp-command-new-session to frontend and waits for acp-report-session-created.
-async fn create_session_handler(State(app): State<App>) -> impl IntoResponse {
+async fn create_session_handler(
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
     let request_id = format!("req-{}", uuid::Uuid::new_v4());
+    let input_session_id = body.get("inputSessionId").and_then(|v| v.as_str());
     let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
 
     // Store pending request
@@ -521,7 +525,10 @@ async fn create_session_handler(State(app): State<App>) -> impl IntoResponse {
     // Broadcast command to frontend
     let notification = WsNotification {
         method: "acp-command-new-session".into(),
-        params: serde_json::json!({ "requestId": request_id }),
+        params: serde_json::json!({
+            "requestId": request_id,
+            "inputSessionId": input_session_id,
+        }),
     };
     let broadcast_json = serde_json::to_string(&notification).unwrap_or_default();
 
@@ -535,7 +542,13 @@ async fn create_session_handler(State(app): State<App>) -> impl IntoResponse {
         Ok(Ok(result)) => {
             let session_id = result.get("sessionId").and_then(|v| v.as_str());
             match session_id {
-                Some(id) => (StatusCode::OK, Json(serde_json::json!({ "sessionId": id }))).into_response(),
+                Some(id) => {
+                    let mut resp = serde_json::json!({ "sessionId": id });
+                    if let Some(input_id) = input_session_id {
+                        resp["inputSessionId"] = serde_json::Value::String(input_id.to_string());
+                    }
+                    (StatusCode::OK, Json(resp)).into_response()
+                }
                 None => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Missing sessionId in response" }))).into_response(),
             }
         }

@@ -104,14 +104,21 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
+        let default_dir = dirs::home_dir()
+            .map(|h| h.join(".crow"))
+            .unwrap_or_else(|| Path::new(".").to_path_buf());
+        Self::with_config_dir(&default_dir)
+    }
+
+    pub fn with_config_dir(config_dir: &Path) -> Self {
         let tm = TerminalManager::new();
         let worktree_events_tx = broadcast::Sender::new(256);
         let settings_events_tx = broadcast::Sender::new(16);
         let acp_cmd_tx = broadcast::Sender::new(256);
-        let db = Database::open_default().expect("failed to open state database");
-        let settings_path = dirs::home_dir()
-            .map(|h| h.join(".crow").join("crow-ui-settings.json"))
-            .unwrap_or_else(|| Path::new("crow-ui-settings.json").to_path_buf());
+        let _ = std::fs::create_dir_all(config_dir);
+        let db_path = config_dir.join("state.db");
+        let db = Database::open(&db_path).expect("failed to open state database");
+        let settings_path = config_dir.join("crow-ui-settings.json");
 
         let mut settings = Settings::new();
         maybe_migrate_settings(&mut settings, &settings_path);
@@ -135,14 +142,14 @@ impl AppState {
         }
     }
 
-    pub fn with_terminals(tm: TerminalManager, tx: broadcast::Sender<String>) -> Self {
+    pub fn with_terminals(tm: TerminalManager, tx: broadcast::Sender<String>, config_dir: &Path) -> Self {
         let worktree_events_tx = broadcast::Sender::new(256);
         let settings_events_tx = broadcast::Sender::new(16);
         let acp_cmd_tx = broadcast::Sender::new(256);
-        let db = Database::open_default().expect("failed to open state database");
-        let settings_path = dirs::home_dir()
-            .map(|h| h.join(".crow").join("crow-ui-settings.json"))
-            .unwrap_or_else(|| Path::new("crow-ui-settings.json").to_path_buf());
+        let _ = std::fs::create_dir_all(config_dir);
+        let db_path = config_dir.join("state.db");
+        let db = Database::open(&db_path).expect("failed to open state database");
+        let settings_path = config_dir.join("crow-ui-settings.json");
 
         let mut settings = Settings::new();
         maybe_migrate_settings(&mut settings, &settings_path);

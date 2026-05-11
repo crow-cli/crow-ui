@@ -9,7 +9,8 @@ export function saveChatTileState(..._args: any[]) {}
 export function getChatState(_id: string): any { return null; }
 
 export interface ChatTab {
-  sessionId: string;
+  tabId: string;
+  sessionId: string | null;
   connected: boolean;
 }
 
@@ -123,8 +124,8 @@ const ChatTile = memo(function ChatTile({
   const createTab = useCallback(() => {
     if (!workspaceRootRef.current) return null;
     chatTabCounter++;
-    const sessionId = `${sessionPrefix}-${Date.now()}-${chatTabCounter}`;
-    return { sessionId, connected: false } as ChatTab;
+    const tabId = `${sessionPrefix}-${Date.now()}-${chatTabCounter}`;
+    return { tabId, sessionId: null, connected: false } as ChatTab;
   }, [sessionPrefix]);
 
   // ── Restore state from registry on mount ──────────────────────────────
@@ -133,16 +134,10 @@ const ChatTile = memo(function ChatTile({
 
     // Try to restore from registry (tile registry is populated by MosaicLayout on mount)
     const registryEntry = getChatState(tileId);
-    if (registryEntry && registryEntry.sessions.length > 0) {
-      // Restore persisted sessions, checking actual connection status
-      const restoredTabs = registryEntry.sessions.map(
-        (sessionId: string) => {
-          const session = acpStore.getSession(sessionId);
-          return {
-            sessionId,
-            connected: session.status === "ready",
-          } as ChatTab;
-        },
+    if (registryEntry && registryEntry.tabIds && registryEntry.tabIds.length > 0) {
+      // Restore persisted tabs — sessions are transient, start disconnected
+      const restoredTabs = registryEntry.tabIds.map(
+        (tabId: string) => ({ tabId, sessionId: null, connected: false } as ChatTab),
       );
       setTabs(restoredTabs);
       setActiveIndex(registryEntry.activeIndex ?? -1);
@@ -152,7 +147,7 @@ const ChatTile = memo(function ChatTile({
       if (tab) {
         setTabs([tab]);
         setActiveIndex(0);
-        saveChatTileState(tileId, [tab.sessionId], 0);
+        saveChatTileState(tileId, [tab.tabId], 0);
       }
     }
 
@@ -164,41 +159,41 @@ const ChatTile = memo(function ChatTile({
     if (tabs.length > 0) {
       saveChatTileState(
         tileId,
-        tabs.map((t) => t.sessionId),
+        tabs.map((t) => t.tabId),
         activeIndex,
       );
     }
   }, [tabs, activeIndex, tileId]);
 
   // ── Start a session (connect client) ──────────────────────────────────
-  const startSession = useCallback(async (sessionId: string) => {
+  const startSession = useCallback(async (tabId: string) => {
     if (!workspaceRootRef.current) return;
-    // Only create if it doesn't already exist (e.g. on first mount)
-    if (!acpStore.getSession(sessionId).agentConfig) {
-      try {
-        await acpStore.createSession(
-          agentConfigRef.current,
-          workspaceRootRef.current,
-          sessionId,
-        );
-      } catch (err) {
-        console.error(`[ChatTile] Failed to start session ${sessionId}:`, err);
-        return;
-      }
+    const tab = tabs.find((t) => t.tabId === tabId);
+    if (!tab || tab.connected) return;
+    try {
+      const sessionId = await acpStore.createSession(
+        agentConfigRef.current,
+        workspaceRootRef.current,
+      );
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.tabId === tabId ? { ...t, sessionId, connected: true } : t,
+        ),
+      );
+    } catch (err) {
+      console.error(`[ChatTile] Failed to start session for ${tabId}:`, err);
     }
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.sessionId === sessionId ? { ...t, connected: true } : t,
-      ),
-    );
-  }, []);
+  }, [tabs]);
 
   // ── Close a session ───────────────────────────────────────────────────
-  const closeSession = useCallback((sessionId: string) => {
-    acpStore.closeSession(sessionId);
+  const closeSession = useCallback((tabId: string) => {
+    const tab = tabs.find((t) => t.tabId === tabId);
+    if (tab?.sessionId) {
+      acpStore.closeSession(tab.sessionId);
+    }
     setTabs((prev) => {
-      const idx = prev.findIndex((t) => t.sessionId === sessionId);
-      const next = prev.filter((t) => t.sessionId !== sessionId);
+      const idx = prev.findIndex((t) => t.tabId === tabId);
+      const next = prev.filter((t) => t.tabId !== tabId);
       if (next.length === 0) {
         window.dispatchEvent(
           new CustomEvent("remove-tile", { detail: { tileId } }),
@@ -212,9 +207,9 @@ const ChatTile = memo(function ChatTile({
       });
       return next;
     });
-  }, [tileId]);
+  }, [tileId, tabs]);
 
-  const activeSession = activeIndex >= 0 ? tabs[activeIndex]?.sessionId : null;
+  const activeTab = activeIndex >= 0 ? tabs[activeIndex] : null;
 
   return (
     <div
@@ -235,16 +230,16 @@ const ChatTile = memo(function ChatTile({
         <div className="flex bg-[var(--color-background-dark)] border-b border-[var(--color-border)] overflow-x-auto shrink-0" style={{ height: 35 }}>
           {tabs.map((tab, idx) => {
             const isActive = idx === activeIndex;
-            const session = acpStore.getSession(tab.sessionId);
+            const session = tab.sessionId ? acpStore.getSession(tab.sessionId) : null;
             const label =
-              session.sessionInfo?.initResponse?.agentInfo?.title ||
-              session.agentConfig?.name ||
+              session?.sessionInfo?.initResponse?.agentInfo?.title ||
+              session?.agentConfig?.name ||
               "Agent";
-            const isConnected = session.status === "ready";
+            const isConnected = tab.connected && session?.status === "ready";
 
             return (
               <div
-                key={tab.sessionId}
+                key={tab.tabId}
                 className="group relative flex items-center gap-2 px-3 text-[13px] cursor-pointer select-none min-w-0 transition-colors"
                 style={{
                   backgroundColor: isActive ? "var(--color-card)" : "transparent",
@@ -253,7 +248,7 @@ const ChatTile = memo(function ChatTile({
                 }}
                 onClick={() => {
                   setActiveIndex(idx);
-                  if (!isConnected) startSession(tab.sessionId);
+                  if (!isConnected) startSession(tab.tabId);
                 }}
               >
                 {/* Active indicator — thin colored line at top */}
@@ -276,7 +271,7 @@ const ChatTile = memo(function ChatTile({
                   className="h-5 w-5 p-0 rounded-sm opacity-0 group-hover:opacity-100 text-[var(--color-foreground-dim)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-border)] flex items-center justify-center flex-shrink-0 transition-opacity"
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeSession(tab.sessionId);
+                    closeSession(tab.tabId);
                   }}
                 >
                   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -287,7 +282,7 @@ const ChatTile = memo(function ChatTile({
               </div>
             );
           })}
-          {/* New session button — subtle, VS Code style */}
+          {/* New tab button — subtle, VS Code style */}
           <button
             className="flex items-center justify-center text-[var(--color-foreground-dim)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-border)] transition-colors flex-shrink-0"
             style={{ width: 35, height: 35 }}
@@ -298,7 +293,7 @@ const ChatTile = memo(function ChatTile({
                 setActiveIndex(tabs.length);
               }
             }}
-            title="New Agent Session"
+            title="New Agent Tab"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -310,14 +305,24 @@ const ChatTile = memo(function ChatTile({
 
       {/* Chat body */}
       <div className="relative flex-1 min-h-0 overflow-hidden">
-        {activeSession ? (
+        {activeTab?.sessionId ? (
           <div className="absolute inset-0">
-            <ChatSessionBody sessionId={activeSession} />
+            <ChatSessionBody sessionId={activeTab.sessionId} />
+          </div>
+        ) : activeTab ? (
+          <div className="flex flex-col items-center justify-center h-full text-[var(--color-foreground-dim)] text-sm gap-3">
+            <span>Disconnected — click tab to connect</span>
+            <button
+              className="px-3 py-1.5 rounded bg-[var(--color-primary)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
+              onClick={() => startSession(activeTab.tabId)}
+            >
+              Connect to Agent
+            </button>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-[var(--color-foreground-dim)] text-sm">
             {workspaceRoot
-              ? "No agent session"
+              ? "No agent tab active"
               : "Open a directory to start a chat"}
           </div>
         )}

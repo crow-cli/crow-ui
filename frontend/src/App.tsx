@@ -413,20 +413,13 @@ export default function App() {
               },
             ],
           },
-          // Chat panel (right)
+          // Chat panel (right) — starts empty, tabs created on demand
           {
             type: "tabset",
             id: "chat-tabset",
             weight: 25,
             selected: 0,
-            children: [
-              {
-                type: "tab",
-                name: "Agent Chat",
-                component: "chat",
-                config: { sessionId: "chat-initial" },
-              },
-            ],
+            children: [],
           },
         ],
       },

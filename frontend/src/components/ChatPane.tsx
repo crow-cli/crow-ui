@@ -79,14 +79,8 @@ export default function ChatPane({
     return unsub;
   }, [sessionId]);
 
-  // Create session when workspace becomes available (defensive: for page refresh)
-  useEffect(() => {
-    if (!workspaceRoot || !agentConfig) return;
-    const s = acpStore.getSession(sessionId);
-    if (!s.agentConfig) {
-      acpStore.createSession(agentConfig, workspaceRoot, sessionId).catch(console.error);
-    }
-  }, [sessionId, workspaceRoot, agentConfig]);
+  // ChatPane assumes the session already exists. Parent (App/ChatTile) must
+  // create it before mounting or pass a sessionId that is already connected.
 
   // Close session on unmount (tab deleted)
   useEffect(() => {

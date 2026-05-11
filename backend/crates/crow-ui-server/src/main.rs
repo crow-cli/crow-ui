@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -11,7 +12,6 @@ fn parse_port() -> u16 {
                 return port;
             }
         }
-        // Also support --port=3928 style
         if let Some(rest) = args[i].strip_prefix("--port=") {
             if let Ok(port) = rest.parse::<u16>() {
                 return port;
@@ -21,6 +21,21 @@ fn parse_port() -> u16 {
     3928
 }
 
+fn parse_config_dir() -> PathBuf {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if args[i] == "--config-dir" && i + 1 < args.len() {
+            return PathBuf::from(&args[i + 1]);
+        }
+        if let Some(rest) = args[i].strip_prefix("--config-dir=") {
+            return PathBuf::from(rest);
+        }
+    }
+    dirs::home_dir()
+        .map(|h| h.join(".crow"))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -28,6 +43,8 @@ async fn main() {
         .init();
 
     let port = parse_port();
+    let config_dir = parse_config_dir();
+    eprintln!("[crow-ui-server] config_dir={:?} port={}", config_dir, port);
 
     // Set up terminal event broadcasting:
     // crossbeam channel (from TerminalManager) → bridge task → tokio broadcast → all clients
@@ -39,6 +56,6 @@ async fn main() {
     let bridge_tx = event_tx.clone();
     tokio::spawn(terminal_event_bridge(event_rx, bridge_tx));
 
-    let app = Arc::new(Mutex::new(AppState::with_terminals(tm, event_tx)));
+    let app = Arc::new(Mutex::new(AppState::with_terminals(tm, event_tx, &config_dir)));
     run_server(app, port).await;
 }
