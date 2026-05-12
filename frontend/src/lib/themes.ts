@@ -111,6 +111,10 @@ export interface IdeTheme {
   chat: ChatTheme;
   editor: EditorTheme;
   terminal: TerminalTheme;
+  /** Shiki syntax highlighting theme name */
+  shikiTheme: string;
+  /** Mermaid diagram theme */
+  mermaidTheme: string;
 }
 
 // ─── Purple Dark (current default) ──────────────────────────────────────────
@@ -153,7 +157,7 @@ export const purpleDark: IdeTheme = {
     inputBg: "rgba(39, 39, 42, 0.30)",
   },
   editor: {
-    background: "#09090b",
+    background: "#222244",
     lineHighlight: "#2d2350",
     selectionBg: "#4c3a6e",
     cursor: "#a78bfa",
@@ -170,6 +174,8 @@ export const purpleDark: IdeTheme = {
     cyan: "#06b6d4",
     white: "#d4d4d8",
   },
+  shikiTheme: "tokyo-night",
+  mermaidTheme: "dark",
 };
 
 // ─── Ocean Dark (alternative) ───────────────────────────────────────────────
@@ -229,6 +235,8 @@ export const oceanDark: IdeTheme = {
     cyan: "#22d3ee",
     white: "#e2e8f0",
   },
+  shikiTheme: "nord",
+  mermaidTheme: "dark",
 };
 
 // ─── Theme Registry ─────────────────────────────────────────────────────────
@@ -260,10 +268,41 @@ export function injectTheme(theme: IdeTheme): void {
   style.textContent = css;
 }
 
+/** Lighten a hex color by a percentage (0-100) using HSL */
+function hexLighten(hex: string, pct: number): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16) / 255;
+  const g = parseInt(h.substring(2, 4), 16) / 255;
+  const b = parseInt(h.substring(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let l = (max + min) / 2;
+  l = Math.min(1, l + pct / 100);
+  // Return simple hex by clamping each channel toward white
+  const f = (c: number) => {
+    const v = Math.round((c + (1 - c) * (pct / 100)) * 255);
+    return v.toString(16).padStart(2, "0");
+  };
+  return `#${f(r)}${f(g)}${f(b)}`;
+}
+
 function themeToCss(theme: IdeTheme): string {
   const t = theme;
+  const accent = t.surface.accent;
+  const destructive = t.surface.destructive;
+  const success = t.surface.success;
+  const warning = t.surface.warning;
+  const surface = t.surface.surface;
+  const elevated = t.surface.elevated;
+  const bg = t.surface.background;
+
   return `
 :root {
+  /* Meta */
+  --theme-name: ${t.name};
+  --theme-shiki: ${t.shikiTheme};
+  --theme-mermaid: ${t.mermaidTheme};
+
   /* Surface */
   --theme-background: ${t.surface.background};
   --theme-surface: ${t.surface.surface};
@@ -272,11 +311,34 @@ function themeToCss(theme: IdeTheme): string {
   --theme-border: ${t.surface.border};
   --theme-accent: ${t.surface.accent};
   --theme-accent-faint: ${t.surface.accentFaint};
+  --theme-accent-light: ${hexLighten(accent, 20)};
   --theme-ring: ${t.surface.ring};
   --theme-destructive: ${t.surface.destructive};
   --theme-success: ${t.surface.success};
   --theme-warning: ${t.surface.warning};
   --theme-info: ${t.surface.info};
+
+  /* Computed opacity variants */
+  --theme-accent-5: color-mix(in srgb, ${accent} 5%, transparent);
+  --theme-accent-8: color-mix(in srgb, ${accent} 8%, transparent);
+  --theme-accent-10: color-mix(in srgb, ${accent} 10%, transparent);
+  --theme-accent-15: color-mix(in srgb, ${accent} 15%, transparent);
+  --theme-accent-20: color-mix(in srgb, ${accent} 20%, transparent);
+  --theme-accent-25: color-mix(in srgb, ${accent} 25%, transparent);
+  --theme-accent-80: color-mix(in srgb, ${accent} 80%, transparent);
+  --theme-destructive-10: color-mix(in srgb, ${destructive} 10%, transparent);
+  --theme-destructive-15: color-mix(in srgb, ${destructive} 15%, transparent);
+  --theme-success-10: color-mix(in srgb, ${success} 10%, transparent);
+  --theme-success-15: color-mix(in srgb, ${success} 15%, transparent);
+  --theme-warning-10: color-mix(in srgb, ${warning} 10%, transparent);
+  --theme-surface-30: color-mix(in srgb, ${surface} 30%, transparent);
+  --theme-surface-40: color-mix(in srgb, ${surface} 40%, transparent);
+  --theme-surface-50: color-mix(in srgb, ${surface} 50%, transparent);
+  --theme-elevated-30: color-mix(in srgb, ${elevated} 30%, transparent);
+  --theme-elevated-40: color-mix(in srgb, ${elevated} 40%, transparent);
+  --theme-bg-30: color-mix(in srgb, ${bg} 30%, transparent);
+  --theme-bg-40: color-mix(in srgb, ${bg} 40%, transparent);
+  --theme-bg-50: color-mix(in srgb, ${bg} 50%, transparent);
 
   /* Text */
   --theme-text-primary: ${t.text.primary};
@@ -324,6 +386,16 @@ function themeToCss(theme: IdeTheme): string {
 /** Read a CSS custom property from :root */
 export function getThemeVar(name: string, fallback: string = ""): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+/** Get the current Shiki theme name from injected CSS */
+export function getCurrentShikiTheme(): string {
+  return getThemeVar("--theme-shiki", "tokyo-night");
+}
+
+/** Get the current Mermaid theme name from injected CSS */
+export function getCurrentMermaidTheme(): string {
+  return getThemeVar("--theme-mermaid", "dark");
 }
 
 /** Build a Monaco editor theme object from current CSS variables */

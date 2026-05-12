@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, memo } from "react";
 import { codeToHtml } from "shiki";
+import { getCurrentShikiTheme } from "../lib/themes";
 
 interface ShikiCodeBlockProps {
   code: string;
@@ -20,7 +21,7 @@ export const ShikiCodeBlock = memo(function ShikiCodeBlock({
     let cancelled = false;
     codeToHtml(code, {
       lang,
-      theme: "tokyo-night",
+      theme: getCurrentShikiTheme(),
     }).then((result) => {
       if (!cancelled) setHtml(result);
     });
@@ -42,18 +43,44 @@ export const ShikiCodeBlock = memo(function ShikiCodeBlock({
   const isInline = !className?.includes("language-");
   if (isInline) {
     return (
-      <code className="bg-violet-500/8 border border-violet-500/15 rounded px-1 py-0.5 font-mono text-[0.9em] text-violet-300">
+      <code
+        className="rounded px-1 py-0.5 font-mono text-[0.9em]"
+        style={{
+          backgroundColor: "var(--theme-accent-8)",
+          border: "1px solid var(--theme-accent-15)",
+          color: "var(--theme-accent-light)",
+        }}
+      >
         {code}
       </code>
     );
   }
 
   return (
-    <div className="group relative my-3 rounded-lg border border-violet-500/10 bg-[rgba(13,10,26,0.7)] backdrop-blur-sm overflow-hidden">
+    <div
+      className="group relative my-3 rounded-lg backdrop-blur-sm overflow-hidden"
+      style={{
+        border: "1px solid var(--theme-accent-10)",
+        backgroundColor: "var(--theme-bg-30)",
+      }}
+    >
       {/* Subtle copy button — appears on hover */}
       <button
         onClick={handleCopy}
-        className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-150 px-2 py-1 rounded text-[10px] font-medium bg-violet-500/10 border border-violet-500/20 text-violet-300 hover:bg-violet-500/20 hover:text-violet-200"
+        className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-150 px-2 py-1 rounded text-[10px] font-medium"
+        style={{
+          backgroundColor: "var(--theme-accent-10)",
+          border: "1px solid var(--theme-accent-20)",
+          color: "var(--theme-accent-light)",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-20)";
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--theme-text-primary)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-10)";
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--theme-accent-light)";
+        }}
         title="Copy code"
       >
         {copied ? "Copied" : "Copy"}
@@ -70,7 +97,10 @@ export const ShikiCodeBlock = memo(function ShikiCodeBlock({
             className="shiki-code [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!font-mono [&_code]:!text-[12px] [&_code]:!leading-relaxed"
           />
         ) : (
-          <pre className="m-0 p-0 font-mono text-[12px] leading-relaxed text-zinc-300">
+          <pre
+            className="m-0 p-0 font-mono text-[12px] leading-relaxed"
+            style={{ color: "var(--theme-text-primary)" }}
+          >
             <code>{code}</code>
           </pre>
         )}

@@ -4,7 +4,7 @@
 /* ── Crosshatch Grid + Noise Texture ───────────────────────────────── */
 /* Diagonal crosshatch pattern on body background — guaranteed visible */
 body {
-    background-color: #09090b;
+    background-color: var(--theme-background);
     /*background-image:
         repeating-linear-gradient(
             45deg,
@@ -92,13 +92,13 @@ body::after {
     /* App-specific */
     --color-active: var(--theme-elevated);
     --color-statusbar-workspace: var(--theme-elevated);
-    --color-background-deeper: #09090b;
-    --color-foreground-muted: #71717a;
-    --color-foreground-dim: #52525b; /* zinc-600 */
-    --color-primary: #8b5cf6; /* violet-500 */
-    --color-primary-faint: color-mix(in srgb, #8b5cf6 15%, transparent);
-    --color-background-dark: #222244;
-    --color-card: #27272a; /* zinc-800 */
+    --color-background-deeper: var(--theme-background);
+    --color-foreground-muted: var(--theme-text-tertiary);
+    --color-foreground-dim: var(--theme-text-tertiary);
+    --color-primary: var(--theme-accent);
+    --color-primary-faint: var(--theme-accent-faint);
+    --color-background-dark: var(--theme-surface);
+    --color-card: var(--theme-elevated);
 
     /* Terminal / Code Colors */
     --color-blue: #60a5fa; /* blue-400 */
@@ -196,8 +196,8 @@ body {
 
 /* Glassmorphism panel styling — more transparent so grid shows through */
 .flexlayout__tabset {
-    background-color: rgba(24, 24, 27, 0.15) !important;
-    border: 1px solid rgba(139, 92, 246, 0.08) !important;
+    background-color: var(--theme-bg-30) !important;
+    border: 1px solid var(--theme-accent-8) !important;
     border-radius: 0.5rem !important;
     overflow: hidden !important;
     backdrop-filter: blur(16px) saturate(1.2) !important;
@@ -230,7 +230,7 @@ body {
 /* Tab button styling */
 .flexlayout__tab_button {
     background: transparent !important;
-    color: #a1a1aa !important;
+    color: var(--theme-text-secondary) !important;
     padding: 0 14px !important;
     font-size: 12px !important;
     height: 32px !important;
@@ -241,12 +241,12 @@ body {
 }
 
 .flexlayout__tab_button:hover {
-    background: rgba(39, 39, 42, 0.8) !important;
+    background: var(--theme-hover) !important;
 }
 
 .flexlayout__tab_button--selected {
-    background: #09090b !important;
-    color: #fff !important;
+    background: var(--theme-background) !important;
+    color: var(--theme-text-inverse) !important;
     position: relative !important;
     border-radius: 0.5rem 0.5rem 0 0 !important;
 }
@@ -258,8 +258,8 @@ body {
     left: 0;
     right: 0;
     height: 2px;
-    background: #8b5cf6;
-    box-shadow: 0 0 8px #8b5cf6;
+    background: var(--theme-accent);
+    box-shadow: 0 0 8px var(--theme-accent);
 }
 
 .flexlayout__tab_button_content {
@@ -268,7 +268,7 @@ body {
 
 /* Hide trailing buttons by default, show on hover */
 .flexlayout__tab_button_trailing {
-    color: #71717a !important;
+    color: var(--theme-text-tertiary) !important;
     opacity: 0 !important;
     transition: opacity 0.15s ease !important;
 }
@@ -279,7 +279,7 @@ body {
 
 .flexlayout__tab_button_trailing:hover {
     opacity: 1 !important;
-    color: #fff !important;
+    color: var(--theme-text-primary) !important;
 }
 
 /* Hide maximize button */
@@ -313,12 +313,12 @@ body {
 }
 
 .flexlayout__splitter:hover {
-    background: rgba(139, 92, 246, 0.3) !important;
+    background: var(--theme-accent-faint) !important;
     transition: background 0.2s ease !important;
 }
 
 .flexlayout__splitter:hover .flexlayout__splitter_handle {
-    background: #8b5cf6 !important;
+    background: var(--theme-accent) !important;
     width: 2px !important;
     height: 30px !important;
 }
@@ -329,11 +329,11 @@ body {
 }
 
 .flexlayout__tab_toolbar_button {
-    color: #71717a !important;
+    color: var(--theme-text-tertiary) !important;
 }
 
 .flexlayout__tab_toolbar_button:hover {
-    color: #d4d4d8 !important;
+    color: var(--theme-text-primary) !important;
 }
 
 /* ── Border button overrides (prevents greyed-out look) ─────────────────── */
@@ -341,14 +341,14 @@ body {
 .flexlayout__border_top,
 .flexlayout__border_left,
 .flexlayout__border_right {
-    background-color: rgba(24, 24, 27, 0.6) !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    background-color: var(--theme-bg-30) !important;
+    border: 1px solid var(--theme-border) !important;
     backdrop-filter: blur(12px) !important;
 }
 
 .flexlayout__border_button {
     background: transparent !important;
-    color: #a1a1aa !important;
+    color: var(--theme-text-secondary) !important;
     padding: 0 14px !important;
     font-size: 12px !important;
     height: 32px !important;
@@ -358,12 +358,32 @@ body {
 }
 
 .flexlayout__border_button:hover {
-    background: rgba(39, 39, 42, 0.8) !important;
+    background: var(--theme-hover) !important;
+}
+
+.flexlayout__border_button--unselected {
+    color: var(--theme-text-secondary) !important;
+    background: transparent !important;
+}
+
+.flexlayout__border_button {
+    background: transparent !important;
+    color: var(--theme-text-secondary) !important;
+    padding: 0 14px !important;
+    font-size: 12px !important;
+    height: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.flexlayout__border_button:hover {
+    background: var(--theme-hover) !important;
 }
 
 .flexlayout__border_button--selected {
-    background: #09090b !important;
-    color: #fff !important;
+    background: var(--theme-background) !important;
+    color: var(--theme-text-inverse) !important;
     position: relative !important;
 }
 
@@ -374,12 +394,12 @@ body {
     left: 0;
     right: 0;
     height: 2px;
-    background: #8b5cf6;
-    box-shadow: 0 0 8px #8b5cf6;
+    background: var(--theme-accent);
+    box-shadow: 0 0 8px var(--theme-accent);
 }
 
 .flexlayout__border_button--unselected {
-    color: #a1a1aa !important;
+    color: var(--theme-text-secondary) !important;
     background: transparent !important;
 }
 
@@ -398,7 +418,7 @@ body {
 .ProseMirror p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
     float: left;
-    color: #71717a;
+    color: var(--theme-text-tertiary);
     pointer-events: none;
     height: 0;
 }
@@ -407,7 +427,7 @@ body {
     max-width: 200px;
     max-height: 150px;
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--theme-border);
     display: inline-block;
     vertical-align: middle;
 }
@@ -417,12 +437,12 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    background: #27273a;
-    border: 1px solid rgba(139, 92, 246, 0.3);
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-accent-25);
     border-radius: 6px;
     padding: 1px 6px;
     font-size: 12px;
-    color: #a78bfa;
+    color: var(--theme-accent-light);
     cursor: default;
     vertical-align: middle;
     margin: 0 1px;
@@ -438,8 +458,8 @@ body {
 
 /* Suggestion popup */
 .suggestions-popup {
-    background: #1e1e2e;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-border);
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     overflow: hidden;
@@ -455,13 +475,13 @@ body {
     padding: 6px 12px;
     cursor: pointer;
     font-size: 12px;
-    color: #a1a1aa;
+    color: var(--theme-text-secondary);
 }
 
 .suggestion-item:hover,
 .suggestion-item.is-selected {
-    background: #27272a;
-    color: #fff;
+    background: var(--theme-hover);
+    color: var(--theme-text-primary);
 }
 
 .suggestion-item .suggestion-icon {
@@ -477,14 +497,14 @@ body {
 .suggestion-item .suggestion-desc {
     margin-left: auto;
     font-size: 10px;
-    color: #71717a;
+    color: var(--theme-text-tertiary);
 }
 
 .suggestion-category {
     padding: 4px 12px 2px;
     font-size: 10px;
     font-weight: 600;
-    color: #71717a;
+    color: var(--theme-text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -495,7 +515,7 @@ body {
 .chat-messages .markdown-body,
 .chat-messages [class*="markdown"],
 .chat-messages [class*="streamdown"] {
-    color: #d4d4d8;
+    color: var(--theme-text-primary);
     line-height: 1.7;
 }
 
@@ -504,19 +524,19 @@ body {
 .chat-messages h2,
 .chat-messages h3,
 .chat-messages h4 {
-    color: #ffffff;
+    color: var(--theme-text-inverse);
     font-weight: 600;
     letter-spacing: 0.02em;
     margin-top: 1.2em;
     margin-bottom: 0.6em;
     padding-bottom: 0.3em;
-    border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+    border-bottom: 1px solid var(--theme-accent-20);
 }
 
 .chat-messages h1 {
     font-size: 1.3em;
-    border-bottom: 1px solid rgba(139, 92, 246, 0.3);
-    text-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+    border-bottom: 1px solid var(--theme-accent-25);
+    text-shadow: 0 0 20px var(--theme-accent-faint);
 }
 
 .chat-messages h2 {
@@ -525,7 +545,7 @@ body {
 
 .chat-messages h3 {
     font-size: 1.05em;
-    color: #e4e4e7;
+    color: var(--theme-text-primary);
 }
 
 /* Paragraphs */
@@ -533,24 +553,24 @@ body {
     margin-bottom: 0.8em;
 }
 
-/* Links — violet glow */
+/* Links — accent glow */
 .chat-messages a {
-    color: #c084fc;
+    color: var(--theme-accent-light);
     text-decoration: none;
-    border-bottom: 1px solid rgba(192, 132, 252, 0.3);
+    border-bottom: 1px solid var(--theme-accent-20);
     transition: all 0.15s ease;
 }
 
 .chat-messages a:hover {
-    color: #d8b4fe;
-    border-bottom-color: rgba(192, 132, 252, 0.6);
-    text-shadow: 0 0 8px rgba(192, 132, 252, 0.3);
+    color: var(--theme-text-primary);
+    border-bottom-color: var(--theme-accent-25);
+    text-shadow: 0 0 8px var(--theme-accent-faint);
 }
 
-/* Code blocks — glassmorphism + neon border */
+/* Code blocks — glassmorphism + accent border */
 .chat-messages pre {
-    background: rgba(13, 10, 26, 0.7) !important;
-    border: 1px solid rgba(139, 92, 246, 0.12);
+    background: var(--theme-bg-30) !important;
+    border: 1px solid var(--theme-accent-10);
     border-radius: 0.5rem;
     padding: 1em;
     margin: 0.8em 0;
@@ -574,28 +594,28 @@ body {
     font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
     font-size: 12px;
     line-height: 1.6;
-    color: #d4c4ff;
+    color: var(--theme-text-primary);
 }
 
 /* Inline code */
 .chat-messages code:not(pre code) {
-    background: rgba(139, 92, 246, 0.08);
-    border: 1px solid rgba(139, 92, 246, 0.15);
+    background: var(--theme-accent-8);
+    border: 1px solid var(--theme-accent-15);
     border-radius: 0.3rem;
     padding: 0.15em 0.4em;
     font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
     font-size: 0.9em;
-    color: #c084fc;
+    color: var(--theme-accent-light);
 }
 
 /* Blockquotes — left accent bar */
 .chat-messages blockquote {
     margin: 0.8em 0;
     padding: 0.5em 1em;
-    border-left: 2px solid rgba(139, 92, 246, 0.4);
-    background: rgba(139, 92, 246, 0.03);
+    border-left: 2px solid var(--theme-accent-25);
+    background: var(--theme-accent-5);
     border-radius: 0 0.5rem 0.5rem 0;
-    color: #a1a1aa;
+    color: var(--theme-text-secondary);
     font-style: italic;
 }
 
@@ -611,7 +631,7 @@ body {
 }
 
 .chat-messages ul li::marker {
-    color: rgba(139, 92, 246, 0.5);
+    color: var(--theme-accent-25);
 }
 
 /* Horizontal rule — gradient glow */
@@ -622,7 +642,7 @@ body {
     background: linear-gradient(
         90deg,
         transparent,
-        rgba(139, 92, 246, 0.3),
+        var(--theme-accent-25),
         transparent
     );
 }
@@ -636,33 +656,33 @@ body {
 }
 
 .chat-messages th {
-    background: rgba(139, 92, 246, 0.08);
-    border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+    background: var(--theme-accent-8);
+    border-bottom: 1px solid var(--theme-accent-20);
     padding: 0.5em 0.75em;
     text-align: left;
     font-weight: 600;
-    color: #e4e4e7;
+    color: var(--theme-text-primary);
 }
 
 .chat-messages td {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid var(--theme-border);
     padding: 0.4em 0.75em;
 }
 
 .chat-messages tr:hover td {
-    background: rgba(139, 92, 246, 0.03);
+    background: var(--theme-accent-5);
 }
 
 /* Selection in chat */
 .chat-messages ::selection {
-    background: rgba(139, 92, 246, 0.25);
-    color: #ffffff;
+    background: var(--theme-accent-25);
+    color: var(--theme-text-inverse);
 }
 
 /* Streamdown code blocks — tight cyberpunk glass styling */
 [data-streamdown="code-block"] {
-    background: rgba(13, 10, 26, 0.75) !important;
-    border: 1px solid rgba(139, 92, 246, 0.15) !important;
+    background: var(--theme-bg-30) !important;
+    border: 1px solid var(--theme-accent-15) !important;
     border-radius: 0.5rem !important;
     margin: 0.5em 0 !important;
     padding: 0.25rem !important;
@@ -679,7 +699,7 @@ body {
     min-height: 22px !important;
     padding: 0 0.25rem !important;
     font-size: 10px !important;
-    color: rgba(139, 92, 246, 0.6) !important;
+    color: var(--theme-accent-light) !important;
 }
 
 /* Streamdown code block body — less padding */
@@ -690,9 +710,9 @@ body {
 
 /* Streamdown code block copy button */
 [data-streamdown="code-block"] button {
-    background: rgba(139, 92, 246, 0.1) !important;
-    border: 1px solid rgba(139, 92, 246, 0.2) !important;
-    color: #c084fc !important;
+    background: var(--theme-accent-10) !important;
+    border: 1px solid var(--theme-accent-20) !important;
+    color: var(--theme-accent-light) !important;
     border-radius: 0.35rem !important;
     padding: 0.25rem 0.5rem !important;
     font-size: 11px !important;
@@ -700,30 +720,35 @@ body {
 }
 
 [data-streamdown="code-block"] button:hover {
-    background: rgba(139, 92, 246, 0.2) !important;
-    border-color: rgba(139, 92, 246, 0.4) !important;
-    color: #d8b4fe !important;
+    background: var(--theme-accent-20) !important;
+    border-color: var(--theme-accent-25) !important;
+    color: var(--theme-text-primary) !important;
 }
 
 /* Streamdown inline code */
 [data-streamdown="inline-code"] {
-    background: rgba(139, 92, 246, 0.08) !important;
-    border: 1px solid rgba(139, 92, 246, 0.15) !important;
+    background: var(--theme-accent-8) !important;
+    border: 1px solid var(--theme-accent-15) !important;
     border-radius: 0.3rem !important;
     padding: 0.15em 0.4em !important;
     font-family:
         "JetBrains Mono", "Fira Code", "Cascadia Code", monospace !important;
     font-size: 0.9em !important;
-    color: #c084fc !important;
+    color: var(--theme-accent-light) !important;
 }
 
-/* Tippy dark theme override */
-.tippy-box[data-theme~="dark"] {
+/* Tippy IDE theme — uses CSS variables for theming */
+.tippy-box[data-theme~="ide"] {
     background: transparent;
     border: none;
     box-shadow: none;
 }
 
-.tippy-box[data-theme~="dark"] .tippy-content {
+.tippy-box[data-theme~="ide"] .tippy-content {
     padding: 0;
+}
+
+/* Tippy arrow for IDE theme */
+.tippy-box[data-theme~="ide"] .tippy-arrow {
+    color: var(--theme-elevated);
 }

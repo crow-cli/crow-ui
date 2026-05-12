@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { ShikiCodeBlock } from "./ShikiCodeBlock";
+import { getCurrentMermaidTheme } from "../lib/themes";
 
 function extractText(children: React.ReactNode): string {
   if (typeof children === "string") return children;
@@ -19,7 +20,14 @@ export const MarkdownCode = memo(function MarkdownCode(props: any) {
   // Inline code (no language class)
   if (!lang) {
     return (
-      <code className="bg-violet-500/8 border border-violet-500/15 rounded px-1 py-0.5 font-mono text-[0.9em] text-violet-300">
+      <code
+        className="rounded px-1 py-0.5 font-mono text-[0.9em]"
+        style={{
+          backgroundColor: "var(--theme-accent-8)",
+          border: "1px solid var(--theme-accent-15)",
+          color: "var(--theme-accent-light)",
+        }}
+      >
         {code}
       </code>
     );
@@ -50,7 +58,7 @@ function MermaidBlock({ code }: { code: string }) {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({
           startOnLoad: false,
-          theme: "dark",
+          theme: getCurrentMermaidTheme() as "dark",
           securityLevel: "strict",
           fontFamily: "monospace",
           suppressErrorRendering: true,

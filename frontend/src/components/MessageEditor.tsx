@@ -180,7 +180,7 @@ function makeSuggestionConfig(
             interactive: true,
             trigger: "manual",
             placement: "top-start",
-            theme: "dark",
+            theme: "ide",
             popperOptions: {
               modifiers: [
                 {
@@ -468,10 +468,20 @@ export default function MessageEditor({
   if (!editor) return null;
 
   return (
-    <div className="px-3 py-2 border-t border-white/[0.04] flex gap-2 shrink-0 bg-zinc-950/30 backdrop-blur-md">
+    <div
+      className="px-3 py-2 border-t flex gap-2 shrink-0 backdrop-blur-md"
+      style={{
+        backgroundColor: "var(--theme-chat-input-bg)",
+        borderColor: "var(--theme-border)",
+      }}
+    >
       <div
         ref={editorRef}
-        className={`flex-1 px-2.5 py-1.5 bg-zinc-900/40 border border-white/[0.06] rounded-md text-text-primary text-[13px] outline-none min-h-[36px] max-h-[200px] overflow-y-auto backdrop-blur-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+        className={`flex-1 px-2.5 py-1.5 rounded-md text-text-primary text-[13px] outline-none min-h-[36px] max-h-[200px] overflow-y-auto backdrop-blur-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+        style={{
+          backgroundColor: "var(--theme-elevated-40)",
+          border: "1px solid var(--theme-border)",
+        }}
         onClick={() => !disabled && editor.chain().focus().run()}
       >
         <EditorContent editor={editor} />
@@ -479,11 +489,31 @@ export default function MessageEditor({
       <button
         onClick={handleSendClick}
         disabled={disabled || editor.isEmpty}
-        className={`px-4 py-1.5 rounded font-semibold text-[13px] border-none self-end transition-all ${
+        className="px-4 py-1.5 rounded font-semibold text-[13px] border-none self-end transition-all"
+        style={
           !disabled && !editor.isEmpty
-            ? "bg-violet-500/80 text-white cursor-pointer hover:bg-violet-500 shadow-[0_0_12px_rgba(139,92,246,0.25)]"
-            : "bg-zinc-800/50 text-text-secondary cursor-default"
-        }`}
+            ? {
+                backgroundColor: "var(--theme-accent-80)",
+                color: "var(--theme-text-inverse)",
+                cursor: "pointer",
+                boxShadow: "0 0 12px var(--theme-accent-faint)",
+              }
+            : {
+                backgroundColor: "var(--theme-surface-50)",
+                color: "var(--theme-text-secondary)",
+                cursor: "default",
+              }
+        }
+        onMouseEnter={(e) => {
+          if (!disabled && !editor.isEmpty) {
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent)";
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!disabled && !editor.isEmpty) {
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-80)";
+          }
+        }}
       >
         Send
       </button>

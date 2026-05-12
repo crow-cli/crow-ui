@@ -380,17 +380,26 @@ function Header({
   onClose: () => void;
 }) {
   const statusColor = isStreaming
-    ? "bg-yellow-400"
+    ? "var(--theme-warning)"
     : isReady
-      ? "bg-green-400"
+      ? "var(--theme-success)"
       : isConnecting
-        ? "bg-yellow-400"
-        : "bg-red-400";
+        ? "var(--theme-warning)"
+        : "var(--theme-destructive)";
 
   return (
-    <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5 bg-zinc-950/40 backdrop-blur-md shrink-0">
+    <div
+      className="flex items-center justify-between px-3 py-1.5 border-b backdrop-blur-md shrink-0"
+      style={{
+        backgroundColor: "var(--theme-chat-header-bg)",
+        borderColor: "var(--theme-border)",
+      }}
+    >
       <div className="flex items-center gap-2">
-        <span className={`w-2 h-2 rounded-full ${statusColor}`} />
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ backgroundColor: statusColor }}
+        />
         <span className="text-[13px] font-semibold">{agentName}</span>
         <span className="text-[11px] text-text-secondary">{statusLabel}</span>
       </div>
@@ -398,7 +407,8 @@ function Header({
         {isStreaming && (
           <button
             onClick={onCancel}
-            className="bg-destructive text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer"
+            className="text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer"
+            style={{ backgroundColor: "var(--theme-destructive)" }}
           >
             ⏹ Stop
           </button>
@@ -416,7 +426,10 @@ function Header({
 
 function ConnectionBar() {
   return (
-    <div className="px-3 py-1 bg-red-500/10 border-b border-border text-destructive text-xs flex items-center gap-2 shrink-0">
+    <div
+      className="px-3 py-1 border-b text-destructive text-xs flex items-center gap-2 shrink-0"
+      style={{ backgroundColor: "var(--theme-destructive-10)" }}
+    >
       <span>Disconnected</span>
     </div>
   );
@@ -432,8 +445,14 @@ function PermissionBar({
   onReject: () => void;
 }) {
   return (
-    <div className="px-3 py-2 bg-yellow-500/10 border-b border-border shrink-0">
-      <div className="text-xs font-semibold text-yellow-400 mb-1">
+    <div
+      className="px-3 py-2 border-b border-border shrink-0"
+      style={{ backgroundColor: "var(--theme-warning-10)" }}
+    >
+      <div
+        className="text-xs font-semibold mb-1"
+        style={{ color: "var(--theme-warning)" }}
+      >
         Permission Request
       </div>
       {permission.toolCall?.title && (
@@ -450,11 +469,18 @@ function PermissionBar({
                 outcome: { outcome: "selected", optionId: opt.optionId },
               })
             }
-            className={`px-2.5 py-0.5 text-[11px] rounded border border-border cursor-pointer font-medium ${
+            className="px-2.5 py-0.5 text-[11px] rounded border border-border cursor-pointer font-medium"
+            style={
               opt.kind?.startsWith("allow")
-                ? "bg-green-400/15 text-green-400"
-                : "bg-red-400/15 text-red-400"
-            }`}
+                ? {
+                    backgroundColor: "var(--theme-success-15)",
+                    color: "var(--theme-success)",
+                  }
+                : {
+                    backgroundColor: "var(--theme-destructive-15)",
+                    color: "var(--theme-destructive)",
+                  }
+            }
           >
             {opt.name}
           </button>
@@ -532,7 +558,14 @@ function Message({ children }: { children: React.ReactNode }) {
 function UserMessage({ text }: { text: string }) {
   return (
     <Message>
-      <div className="inline-block max-w-[85%] rounded-lg border border-violet-500/20 bg-violet-500/10 px-4 py-2.5 font-mono text-[13px] leading-relaxed text-text-primary shadow-[0_0_12px_rgba(139,92,246,0.08)]">
+      <div
+        className="inline-block max-w-[85%] rounded-lg px-4 py-2.5 font-mono text-[13px] leading-relaxed text-text-primary"
+        style={{
+          backgroundColor: "var(--theme-accent-10)",
+          border: "1px solid var(--theme-accent-20)",
+          boxShadow: "0 0 12px var(--theme-accent-faint)",
+        }}
+      >
         <Streamdown
           plugins={{ mermaid, math }}
           isAnimating={false}
@@ -647,12 +680,12 @@ function ToolCallAccordion({
   const title = tool.title || kind || "Tool call";
   const icon =
     status === "completed" ? "✅" : status === "failed" ? "❌" : "⏳";
-  const borderColorClass =
+  const borderColor =
     status === "completed"
-      ? "border-green-400/20"
+      ? "var(--theme-success-10)"
       : status === "failed"
-        ? "border-red-400/20"
-        : "border-yellow-400/20";
+        ? "var(--theme-destructive-10)"
+        : "var(--theme-warning-10)";
 
   // Extract terminal info from tool content (ACP spec: content array contains { type: "terminal", terminalId })
   const terminalContent = tool.content?.find((c: any) => c.type === "terminal");
@@ -733,7 +766,8 @@ function ToolCallAccordion({
 
   return (
     <div
-      className={`text-xs rounded-md overflow-hidden bg-surface border ${borderColorClass}`}
+      className="text-xs rounded-md overflow-hidden bg-surface border"
+      style={{ borderColor }}
     >
       <div
         onClick={() => setOpen(!open)}
