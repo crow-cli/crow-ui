@@ -23,6 +23,7 @@ pub fn builtin_defaults() -> Value {
     add_output_defaults(&mut m);
     add_notebook_defaults(&mut m);
     add_language_specific_defaults(&mut m);
+    ins(&mut m, "workbench.colorTheme", json!("purple-dark"));
     Value::Object(m)
 }
 

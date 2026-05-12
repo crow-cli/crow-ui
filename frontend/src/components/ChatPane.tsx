@@ -294,7 +294,10 @@ export default function ChatPane({
   return (
     <div
       data-testid="chat-pane"
-      className="relative flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans bg-transparent"
+      className="relative flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans"
+      style={{
+        backgroundColor: `color-mix(in srgb, var(--theme-chat-bg) calc(var(--theme-chat-bg-opacity) * 100%), transparent)`,
+      }}
     >
       <div className="dot-overlay" />
       <Header

@@ -41,7 +41,7 @@ body::after {
     z-index: 1;
     background-image: radial-gradient(
         circle at 1px 1px,
-        rgba(139, 92, 246, 0.15) 1px,
+        var(--theme-chat-dot-color) 1px,
         transparent 0
     );
     background-size: 16px 16px;
@@ -50,48 +50,48 @@ body::after {
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    /* Zinc Palette - Neutral base for a cleaner look */
-    --color-background: #09090b; /* zinc-950 */
-    --color-surface: #222244; /* zinc-900 */
-    --color-surface-elevated: #27272a; /* zinc-800 */
-    --color-hover: #27272a; /* zinc-800 */
-    --color-input: #222244; /* zinc-900 */
-    --color-popover: #222244; /* zinc-900 */
-    --color-muted: #222244; /* zinc-900 */
-    --color-secondary: #27272a; /* zinc-800 */
+    /* Surface — mapped from runtime theme */
+    --color-background: var(--theme-background);
+    --color-surface: var(--theme-surface);
+    --color-surface-elevated: var(--theme-elevated);
+    --color-hover: var(--theme-hover);
+    --color-input: var(--theme-surface);
+    --color-popover: var(--theme-surface);
+    --color-muted: var(--theme-surface);
+    --color-secondary: var(--theme-elevated);
 
-    /* Borders - Subtle white for glass effect */
-    --color-border: rgba(255, 255, 255, 0.08);
+    /* Borders */
+    --color-border: var(--theme-border);
 
-    /* Accent - Violet */
-    --color-accent: #8b5cf6; /* violet-500 */
-    --color-accent-faint: color-mix(in srgb, #8b5cf6 15%, transparent);
-    --color-ring: #a78bfa; /* violet-400 */
+    /* Accent */
+    --color-accent: var(--theme-accent);
+    --color-accent-faint: var(--theme-accent-faint);
+    --color-ring: var(--theme-ring);
 
     /* Semantic */
-    --color-destructive: #ef4444; /* red-500 */
-    --color-success: #22c55e; /* green-500 */
-    --color-warning: #eab308; /* yellow-500 */
-    --color-info: #3b82f6; /* blue-500 */
+    --color-destructive: var(--theme-destructive);
+    --color-success: var(--theme-success);
+    --color-warning: var(--theme-warning);
+    --color-info: var(--theme-info);
 
-    /* Text - Zinc scale */
-    --color-text-primary: #d4d4d8; /* zinc-300 */
-    --color-text-secondary: #a1a1aa; /* zinc-400 */
-    --color-text-tertiary: #71717a; /* zinc-500 */
-    --color-text-accent: #ffffff; /* white — used by MenuBar, headings */
-    --color-heading: #ffffff; /* white */
-    --color-foreground: #d4d4d8; /* zinc-300 */
-    --color-card-foreground: #d4d4d8;
-    --color-popover-foreground: #d4d4d8;
-    --color-primary-foreground: #ffffff;
-    --color-secondary-foreground: #d4d4d8;
-    --color-muted-foreground: #71717a;
-    --color-accent-foreground: #ffffff;
-    --color-destructive-foreground: #ffffff;
+    /* Text */
+    --color-text-primary: var(--theme-text-primary);
+    --color-text-secondary: var(--theme-text-secondary);
+    --color-text-tertiary: var(--theme-text-tertiary);
+    --color-text-accent: var(--theme-text-accent);
+    --color-heading: var(--theme-text-accent);
+    --color-foreground: var(--theme-text-primary);
+    --color-card-foreground: var(--theme-text-primary);
+    --color-popover-foreground: var(--theme-text-primary);
+    --color-primary-foreground: var(--theme-text-inverse);
+    --color-secondary-foreground: var(--theme-text-primary);
+    --color-muted-foreground: var(--theme-text-tertiary);
+    --color-accent-foreground: var(--theme-text-inverse);
+    --color-destructive-foreground: var(--theme-text-inverse);
 
     /* App-specific */
-    --color-active: #27272a; /* zinc-800 */
-    --color-statusbar-workspace: #27272a;
+    --color-active: var(--theme-elevated);
+    --color-statusbar-workspace: var(--theme-elevated);
     --color-background-deeper: #09090b;
     --color-foreground-muted: #71717a;
     --color-foreground-dim: #52525b; /* zinc-600 */

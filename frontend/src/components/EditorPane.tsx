@@ -24,13 +24,7 @@ export interface EditorPaneHandle {
   getModelInfo: () => { versionId: number };
 }
 
-// Monaco theme colors (Monaco API only — not React styles)
-const MONACO_THEME_COLORS = {
-  bg: "#222244",
-  text: "#d4c4ff",
-  lineHighlight: "#2d2350",
-  selection: "#4ade8033",
-};
+import { getMonacoThemeColors } from "../lib/themes";
 
 /** Registry of Monaco models — one per file path. Lives outside React to survive remounts. */
 const modelRegistry = new Map<string, monaco.editor.ITextModel>();
@@ -100,38 +94,17 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
     useEffect(() => {
       if (!containerRef.current) return;
 
-      monaco.editor.defineTheme("crow-ui-dark", {
+      monaco.editor.defineTheme("crow-ui-dynamic", {
         base: "vs-dark",
         inherit: true,
         rules: [],
-        colors: {
-          "editor.background": MONACO_THEME_COLORS.bg,
-          "editor.foreground": MONACO_THEME_COLORS.text,
-          "editor.lineHighlightBackground": MONACO_THEME_COLORS.lineHighlight,
-          "editor.selectionBackground": MONACO_THEME_COLORS.selection,
-          "editorCursor.foreground": "#4ade80",
-          "editorLineNumber.foreground": "#5a4d80",
-          "editorLineNumber.activeForeground": "#d4c4ff",
-          "editorIndentGuide.background": "#2d2350",
-          "editorIndentGuide.activeBackground": "#3a2d60",
-          "editorBracketMatch.background": "#4ade8022",
-          "editorBracketMatch.border": "#4ade80",
-          "editorWidget.background": "#1a1230",
-          "editorWidget.border": "#2d2350",
-          "input.background": "#2d2350",
-          "input.border": "#3a2d60",
-          "input.foreground": "#d4c4ff",
-          "list.hoverBackground": "#2d2350",
-          "list.focusBackground": "#3a2d60",
-          "scrollbarSlider.background": "#5a4d8044",
-          "scrollbarSlider.hoverBackground": "#5a4d8088",
-        },
+        colors: getMonacoThemeColors(),
       });
 
       const editor = monaco.editor.create(containerRef.current, {
         value: "",
         language,
-        theme: "crow-ui-dark",
+        theme: "crow-ui-dynamic",
         automaticLayout: true,
         readOnly: readOnly || false,
         wordWrap: wordWrap ? "on" : "off",

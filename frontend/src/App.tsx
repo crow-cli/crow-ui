@@ -339,8 +339,12 @@ export default function App() {
   // Load settings after connection
   useEffect(() => {
     if (!connected) return;
-    settings.initSettings().then(() => {
+    settings.initSettings().then(async () => {
       setWordWrap(settings.getSettings().editor.wordWrap === "on");
+      // Inject theme CSS variables
+      const themeName = (await settings.getSetting<string>("workbench.colorTheme", "purple-dark")) ?? "purple-dark";
+      const { getTheme, injectTheme } = await import("./lib/themes");
+      injectTheme(getTheme(themeName));
     });
     return settings.subscribe(() => {
       setWordWrap(settings.getSettings().editor.wordWrap === "on");

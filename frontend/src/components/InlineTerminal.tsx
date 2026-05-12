@@ -38,30 +38,7 @@ interface InlineTerminalProps {
   sessionId?: string;
 }
 
-// Terminal color theme (xterm.js only — not React styles)
-const TERMINAL_THEME = {
-  background: "#0d0a1a",
-  foreground: "#d4c4ff",
-  cursor: "#4ade80",
-  cursorAccent: "#0d0a1a",
-  selectionBackground: "#4ade8033",
-  black: "#2d2350",
-  red: "#ff6b8a",
-  green: "#4ade80",
-  yellow: "#fbbf24",
-  blue: "#60a5fa",
-  magenta: "#c084fc",
-  cyan: "#22d3ee",
-  white: "#e2e8f0",
-  brightBlack: "#5a4d80",
-  brightRed: "#ff8fa3",
-  brightGreen: "#6ee7a0",
-  brightYellow: "#fcd34d",
-  brightBlue: "#93c5fd",
-  brightMagenta: "#d8b4fe",
-  brightCyan: "#67e8f9",
-  brightWhite: "#ffffff",
-};
+import { getTerminalTheme } from "../lib/themes";
 
 export default function InlineTerminal({
   terminalId,
@@ -117,7 +94,7 @@ export default function InlineTerminal({
       cursorStyle: "block",
       fontSize: 12,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-      theme: TERMINAL_THEME,
+      theme: getTerminalTheme(),
       scrollback: 5000,
       convertEol: true,
       rows: 12,
