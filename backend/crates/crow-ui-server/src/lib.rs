@@ -7,6 +7,7 @@ mod ws;
 mod router;
 mod state;
 mod handlers;
+pub mod protocol;
 
 pub use ws::{run_server, terminal_event_bridge};
 pub use state::AppState;

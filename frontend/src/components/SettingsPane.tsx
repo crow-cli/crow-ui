@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import * as monaco from "monaco-editor";
 import * as settings from "../lib/settings";
 import { ws } from "../lib/ws-client";
+import { fsApi, settingsApi } from "../lib/rpc";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 
@@ -51,10 +52,7 @@ export default function SettingsPane() {
     let path = settings.getConfigPath();
     if (!path) {
       try {
-        const pathResult = await ws.invoke<{ path: string }>(
-          "get_config_path",
-          {},
-        );
+        const pathResult = await settingsApi.getConfigPath();
         path = pathResult.path;
       } catch {
         setLoading(false);
@@ -66,7 +64,7 @@ export default function SettingsPane() {
     setConfigPath(path);
 
     try {
-      const result = await ws.invoke<{ content?: string }>("read_file", {
+      const result = await fsApi.readFile({
         path,
       });
       if (result.content && result.content.trim()) {
@@ -163,7 +161,7 @@ export default function SettingsPane() {
     }
 
     try {
-      await ws.invoke("write_file", { path, content });
+      await fsApi.writeFile({ path, content });
       await settings.loadSettings();
       setHasUnsaved(false);
       setSaved(true);

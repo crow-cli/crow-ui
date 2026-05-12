@@ -43,6 +43,7 @@ import BottomBar, { type ActivityId } from "./components/BottomBar";
 import { MenuBar, type MenuGroup } from "./components/MenuBar";
 import * as settings from "./lib/settings";
 import { ws } from "./lib/ws-client";
+import { documentApi, workspaceApi, acpApi } from "./lib/rpc";
 import { setGlobalOpenFile, setGlobalOpenTerminal, setGlobalOpenChat, globalOpenFile, globalOpenTerminal, globalOpenChat } from "./lib/workspace-context";
 import type { AgentConfig } from "./lib/acp-client";
 import * as acpStore from "./lib/acp-store";
@@ -312,14 +313,14 @@ export default function App() {
             }
 
             // Report the REAL session ID back to backend
-            ws.invoke("acp_report_session_created", {
-              requestId,
+            acpApi.reportSessionCreated({
+              requestId: requestId,
               result: { sessionId },
             }).catch(console.error);
           } catch (err) {
             console.error("[App] Failed to create session:", err);
-            ws.invoke("acp_report_session_created", {
-              requestId,
+            acpApi.reportSessionCreated({
+              requestId: requestId,
               result: { error: String(err) },
             }).catch(console.error);
           }
@@ -438,14 +439,14 @@ export default function App() {
     (async () => {
       try {
         // First check if server already has a workspace open
-        const current = await ws.invoke<{ workspace?: string | null }>("get_current_workspace", {});
+        const current = await workspaceApi.getCurrent();
         let path = current.workspace;
 
         // If server has no workspace (e.g. restarted), fall back to most recent from DB
         if (!path) {
-          const recent = await ws.invoke<Array<{ path: string; last_opened: string }>>("get_recent_workspaces", { limit: 1 });
-          if (recent && recent.length > 0) {
-            path = recent[0].path;
+          const recent = await workspaceApi.getRecent({ limit: 1 });
+          if (recent.entries && recent.entries.length > 0) {
+            path = recent.entries[0].path;
           }
         }
 
@@ -648,8 +649,8 @@ export default function App() {
       setSaving(true);
       try {
         const content = getModelContent(path) ?? "";
-        await ws.invoke("document_set_content", { path, content });
-        await ws.invoke("document_save", { path });
+        await documentApi.setContent({ path, content });
+        await documentApi.save({ path });
         setDirtyFiles((prev) => {
           const next = new Set(prev);
           next.delete(path);
@@ -667,7 +668,7 @@ export default function App() {
   // Close tab
   const closeTab = useCallback((path: string) => {
     disposeModel(path);
-    ws.invoke("document_close", { path }).catch(console.error);
+    documentApi.close({ path }).catch(console.error);
     setOpenFiles((prev) => {
       const next = new Map(prev);
       next.delete(path);
@@ -798,7 +799,7 @@ export default function App() {
     if (!wsRoot) return;
     if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
     layoutSaveTimer.current = setTimeout(() => {
-      ws.invoke("save_workspace_layout", {
+      workspaceApi.saveLayout({
         workspace: wsRoot,
         layout: JSON.stringify(modelJson),
       }).catch(() => {});
@@ -808,14 +809,14 @@ export default function App() {
   const handleOpenFolder = async (path: string) => {
     setShowFolderPicker(false);
     try {
-      await ws.invoke<{ root: string }>("workspace_open", { path });
+      await workspaceApi.open({ path });
       setWorkspaceRoot(path);
       // Track in recently opened
       await settings.addRecentlyOpened(path);
       setActiveActivity("explorer");
 
       // Try to load saved layout for this workspace
-      const saved = await ws.invoke<{ layout?: string }>("get_workspace_layout", {
+      const saved = await workspaceApi.getLayout({
         workspace: path,
       }).catch(() => ({ layout: undefined }));
 

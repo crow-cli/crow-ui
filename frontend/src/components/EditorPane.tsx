@@ -2,6 +2,7 @@ import { useRef, useEffect, useImperativeHandle, forwardRef } from "react";
 import * as monaco from "monaco-editor";
 import * as settings from "../lib/settings";
 import { ws } from "../lib/ws-client";
+import { documentApi, fsApi } from "../lib/rpc";
 
 interface EditorPaneProps {
   path: string;
@@ -290,7 +291,8 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
       // Lazy-load content from backend if this path has no content yet
       // This fixes blank editors when tiles are restored from session state
       if (needsContentLoad) {
-        ws.invoke<{ content: string }>("read_file", { path })
+        fsApi
+          .readFile({ path })
           .then((result) => {
             if (model.getValueLength() === 0 && result.content) {
               suppressDirtyRef.current = true;
@@ -310,7 +312,7 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
       if (!openedDocuments.has(path)) {
         openedDocuments.add(path);
         const content = model.getValue();
-        ws.invoke("document_open", { path, content }).catch((e) => {
+        documentApi.open({ path, content }).catch((e) => {
           console.warn("[EditorPane] document_open failed:", e);
         });
       }
@@ -367,7 +369,7 @@ export function setModelContent(
   // Register document with backend for save support (only once per path)
   if (!openedDocuments.has(path)) {
     openedDocuments.add(path);
-    ws.invoke("document_open", { path, content }).catch((e) => {
+    documentApi.open({ path, content }).catch((e) => {
       console.warn("[setModelContent] document_open failed:", e);
     });
   }

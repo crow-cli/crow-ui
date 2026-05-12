@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import EditorPane, { setModelContent } from "./EditorPane";
 import TerminalPane from "./TerminalPane";
 import { ws } from "../lib/ws-client";
+import { fsApi } from "../lib/rpc";
 import { FileIcon } from "../lib/file-icons";
 
 function getLanguage(path: string): string {
@@ -80,7 +81,7 @@ export default function WorkspacePane({
           return existing.id;
         }
         try {
-          const result = await ws.invoke<{ content: string }>("read_file", {
+          const result = await fsApi.readFile({
             path,
           });
           const language = getLanguage(path);

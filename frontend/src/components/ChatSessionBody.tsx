@@ -26,6 +26,7 @@ import { groupNotifications, mergeToolCalls } from "../lib/acp-utils";
 import * as acpStore from "../lib/acp-store";
 import { getCachedFile, cacheFile } from "../lib/file-cache";
 import { ws } from "../lib/ws-client";
+import { fsApi } from "../lib/rpc";
 import InlineTerminal from "./InlineTerminal";
 import { FileReadView, FileWriteView, FileEditView } from "./FileViews";
 import { WebFetchView, WebSearchView } from "./WebViews";
@@ -168,7 +169,7 @@ export default function ChatSessionBody({
                 return next;
               });
             } else {
-              ws.invoke("read_file", { path: filePath })
+              fsApi.readFile({ path: filePath })
                 .then((result: any) => {
                   const content = result.content as string;
                   cacheFile(filePath, content);

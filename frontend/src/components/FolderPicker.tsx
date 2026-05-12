@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ws } from "../lib/ws-client";
+import { fsApi } from "../lib/rpc";
 import { FileIcon } from "../lib/file-icons";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -14,11 +15,7 @@ import {
 import { cn } from "../lib/utils";
 import * as settings from "../lib/settings";
 
-interface DirEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-}
+import type { DirEntry } from "../bindings";
 
 interface FolderPickerProps {
   initialPath?: string;
@@ -55,15 +52,15 @@ export function FolderPicker({
     setLoading(true);
     setError(null);
     try {
-      const result = await ws.invoke<{ entries: DirEntry[] }>("read_dir", {
+      const result = await fsApi.readDir({
         path,
       });
       const filtered = showHidden
         ? result.entries
         : result.entries.filter((e) => !isHidden(e.name));
       const sorted = [...filtered].sort((a, b) => {
-        if (a.is_dir && !b.is_dir) return -1;
-        if (!a.is_dir && b.is_dir) return 1;
+        if (a.isDir && !b.isDir) return -1;
+        if (!a.isDir && b.isDir) return 1;
         return a.name.localeCompare(b.name);
       });
       setEntries(sorted);
@@ -262,26 +259,26 @@ export function FolderPicker({
           {entries.map((entry) => (
             <div
               key={entry.path}
-              onClick={() => entry.is_dir && navigateTo(entry.path)}
+              onClick={() => entry.isDir && navigateTo(entry.path)}
               className={cn(
                 "flex items-center gap-3 px-6 py-2 cursor-pointer transition-colors",
-                entry.is_dir
+                entry.isDir
                   ? "hover:bg-hover/60 text-text-accent"
                   : "text-text-secondary cursor-default hover:bg-muted/40",
               )}
             >
               <div className="flex-shrink-0">
-                <FileIcon name={entry.name} isDir={entry.is_dir} size={16} />
+                <FileIcon name={entry.name} isDir={entry.isDir} size={16} />
               </div>
               <span
                 className={cn(
                   "text-[13px] overflow-hidden text-ellipsis whitespace-nowrap",
-                  entry.is_dir && "font-medium",
+                  entry.isDir && "font-medium",
                 )}
               >
                 {entry.name}
               </span>
-              {entry.is_dir && (
+              {entry.isDir && (
                 <svg
                   className="ml-auto h-3.5 w-3.5 text-text-secondary/50 flex-shrink-0"
                   viewBox="0 0 24 24"
@@ -300,8 +297,8 @@ export function FolderPicker({
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-muted/30">
           <span className="text-[12px] text-text-secondary tracking-wide">
-            {entries.filter((e) => e.is_dir).length} directories,{" "}
-            {entries.filter((e) => !e.is_dir).length} files
+            {entries.filter((e) => e.isDir).length} directories,{" "}
+            {entries.filter((e) => !e.isDir).length} files
           </span>
           <div className="flex items-center gap-2">
             <Button

@@ -33,6 +33,7 @@ parking_lot = { workspace = true }
 crossbeam = { workspace = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+ts-rs = { workspace = true, features = ["uuid-impl", "serde-json-impl"] }
 rust-embed = "8"
 mime_guess = "2"
 tracing = "0.1"
@@ -42,6 +43,9 @@ dirs = "5"
 [[bin]]
 name = "crow-ui-server"
 path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

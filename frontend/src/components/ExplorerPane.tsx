@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ws } from "../lib/ws-client";
+import { fsApi } from "../lib/rpc";
 import { FileIcon } from "../lib/file-icons";
 import ContextMenu from "./ContextMenu";
 import { Input } from "./ui/input";
@@ -9,7 +10,7 @@ import * as settings from "../lib/settings";
 interface FileEntry {
   name: string;
   path: string;
-  is_dir: boolean;
+  isDir: boolean;
 }
 
 interface ExplorerPaneProps {
@@ -99,7 +100,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       ? items
       : items.filter((e) => !isHidden(e.name));
     return [...filtered].sort((a, b) => {
-      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
       return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
     });
   };
@@ -143,7 +144,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
 
   const loadDir = async (path: string) => {
     try {
-      const result = await ws.invoke<{ entries: FileEntry[] }>("read_dir", {
+      const result = await fsApi.readDir({
         path,
       });
       setEntries(sortEntries(result.entries));
@@ -157,7 +158,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       return childCache.get(path)!;
     }
     try {
-      const result = await ws.invoke<{ entries: FileEntry[] }>("read_dir", {
+      const result = await fsApi.readDir({
         path,
       });
       const sorted = sortEntries(result.entries);
@@ -248,9 +249,9 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
 
     try {
       if (isDir) {
-        await ws.invoke("create_dir", { path: newPath });
+        await fsApi.createDir({ path: newPath });
       } else {
-        await ws.invoke("create_file", { path: newPath, content: "" });
+        await fsApi.createFile({ path: newPath, content: "" });
       }
       // Expand the parent dir so we can see the new entry
       setExpandedDirs((prev) => new Set(prev).add(parentPath));
@@ -294,7 +295,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       return;
     }
     try {
-      await ws.invoke("rename", { from: editingPath, to: newPath });
+      await fsApi.rename({ from: editingPath, to: newPath });
       setChildCache(new Map());
       loadDir(root);
     } catch (e: any) {
@@ -323,7 +324,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
     setDeletingPath(null);
     setDeletingName("");
     try {
-      await ws.invoke("remove", { path });
+      await fsApi.remove({ path });
       if (isDir && expandedDirs.has(path)) {
         setExpandedDirs((prev) => {
           const next = new Set(prev);
@@ -451,7 +452,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       // If this child is the parent we're creating under, insert the create input after it
       if (
         creatingParentPath === child.path &&
-        child.is_dir &&
+        child.isDir &&
         expandedDirs.has(child.path)
       ) {
         items.push(renderCreateInput(depth + 1, `create-${child.path}`));
@@ -466,17 +467,17 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
 
   const renderItem = (entry: FileEntry, depth: number): React.ReactElement => {
     const isEditing = editingPath === entry.path;
-    const isDirty = !entry.is_dir && dirtyFiles?.has(entry.path);
+    const isDirty = !entry.isDir && dirtyFiles?.has(entry.path);
 
     return (
       <div key={entry.path}>
         <div
           onClick={() =>
-            entry.is_dir
+            entry.isDir
               ? toggleDir(entry.path)
               : onFileClick(entry.path, false)
           }
-          onContextMenu={(e) => handleContextMenu(e, entry.path, entry.is_dir)}
+          onContextMenu={(e) => handleContextMenu(e, entry.path, entry.isDir)}
           className={`cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors ${
             isDirty ? "text-[var(--color-primary)] font-medium" : "text-text-primary"
           }`}
@@ -490,9 +491,9 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
           }}
         >
           <span className="w-4 text-center text-[10px] text-text-secondary flex-shrink-0">
-            {entry.is_dir ? (expandedDirs.has(entry.path) ? "▾" : "▸") : "  "}
+            {entry.isDir ? (expandedDirs.has(entry.path) ? "▾" : "▸") : "  "}
           </span>
-          <FileIcon name={entry.name} isDir={entry.is_dir} size={14} />
+          <FileIcon name={entry.name} isDir={entry.isDir} size={14} />
           {isEditing ? (
             <input
               ref={renameInputRef}
@@ -515,7 +516,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
             <span className="text-[8px] leading-none text-[var(--color-primary)] flex-shrink-0">●</span>
           )}
         </div>
-        {entry.is_dir &&
+        {entry.isDir &&
           expandedDirs.has(entry.path) &&
           childCache.has(entry.path) && (
             <div>

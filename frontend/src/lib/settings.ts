@@ -8,6 +8,7 @@
  */
 
 import { ws } from "./ws-client";
+import { settingsApi, workspaceApi } from "./rpc";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -171,11 +172,8 @@ export async function initSettings(): Promise<void> {
 /** Load all resolved settings from backend into local cache */
 export async function loadSettings(): Promise<void> {
   try {
-    const nested = await ws.invoke<Record<string, unknown>>(
-      "get_all_settings",
-      {},
-    );
-    cache = deepMerge(structuredClone(DEFAULT_SETTINGS), nested);
+    const { settings } = await settingsApi.getAll();
+    cache = deepMerge(structuredClone(DEFAULT_SETTINGS), settings as Record<string, unknown>);
   } catch (e) {
     console.warn("[settings] loadSettings failed, using defaults:", e);
     cache = structuredClone(DEFAULT_SETTINGS);
@@ -202,11 +200,9 @@ export async function getSetting<T>(
   defaultValue?: T,
 ): Promise<T | undefined> {
   try {
-    const result = await ws.invoke<{ value: T | null }>("get_setting", {
-      key,
-    });
-    return result.value !== null && result.value !== undefined
-      ? result.value
+    const { value } = await settingsApi.get({ key });
+    return value !== null && value !== undefined
+      ? (value as T)
       : defaultValue;
   } catch (e) {
     console.warn(`[settings] getSetting("${key}") failed:`, e);
@@ -222,7 +218,7 @@ export async function updateSetting(
   value: unknown,
 ): Promise<void> {
   try {
-    await ws.invoke("update_setting", { key, value });
+    await settingsApi.update({ key, value: value as any });
   } catch (e) {
     console.error(`[settings] updateSetting("${key}") failed:`, e);
     throw e;
@@ -251,7 +247,7 @@ export async function updateLocalSetting(
 /** Add a directory to recently opened — delegates to backend SQLite */
 export async function addRecentlyOpened(dir: string): Promise<void> {
   try {
-    await ws.invoke("add_recent_workspace", { path: dir });
+    await workspaceApi.addRecent({ path: dir });
   } catch (e) {
     console.error("Failed to add recent workspace:", e);
   }
@@ -260,10 +256,7 @@ export async function addRecentlyOpened(dir: string): Promise<void> {
 /** Get recently opened workspaces from backend SQLite */
 export async function getRecentWorkspaces(limit = 10): Promise<string[]> {
   try {
-    const entries = await ws.invoke<Array<{ path: string }>>(
-      "get_recent_workspaces",
-      { limit },
-    );
+    const { entries } = await workspaceApi.getRecent({ limit });
     return entries.map((e) => e.path);
   } catch (e) {
     console.error("Failed to get recent workspaces:", e);

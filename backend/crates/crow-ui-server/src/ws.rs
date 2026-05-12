@@ -363,21 +363,60 @@ async fn handle_acp_message(text: &str, app: &App) -> Value {
 
     let result: Result<Value, String> = match request.method.as_str() {
         // ACP agent lifecycle
-        "acp_spawn" => handlers::handle_acp_spawn(&state, &request.params).await,
-        "acp_relay" => handlers::handle_acp_relay(&state, &request.params).await,
-        "acp_send" => handlers::handle_acp_send(&state, &request.params).await,
-        "acp_kill" => handlers::handle_acp_kill(&state, &request.params).await,
-        "acp_read_file" => handlers::handle_acp_read_file(&state, &request.params).await,
-        "acp_write_file" => handlers::handle_acp_write_file(&state, &request.params).await,
+        "acp_spawn" => match serde_json::from_value::<crate::protocol::AcpSpawnRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_spawn(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_relay" => match serde_json::from_value::<crate::protocol::AcpRelayRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_relay(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_send" => match serde_json::from_value::<crate::protocol::AcpSendRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_send(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_kill" => match serde_json::from_value::<crate::protocol::AcpKillRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_kill(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_read_file" => match serde_json::from_value::<crate::protocol::AcpReadFileRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_read_file(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_write_file" => match serde_json::from_value::<crate::protocol::AcpWriteFileRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_write_file(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
 
         // ACP terminal methods
-        "acp_create_terminal" => handlers::handle_acp_create_terminal(&state, &request.params).await,
-        "acp_terminal_output" => handlers::handle_acp_terminal_output(&state, &request.params).await,
-        "acp_wait_for_terminal_exit" => handlers::handle_acp_wait_for_terminal_exit(&state, &request.params).await,
-        "acp_kill_terminal" => handlers::handle_acp_kill_terminal(&state, &request.params).await,
-        "acp_release_terminal" => handlers::handle_acp_release_terminal(&state, &request.params).await,
-        "acp_terminal_write_input" => handlers::handle_acp_terminal_write_input(&state, &request.params).await,
-        "acp_terminal_resize" => handlers::handle_acp_terminal_resize(&state, &request.params).await,
+        "acp_create_terminal" => match serde_json::from_value::<crate::protocol::AcpCreateTerminalRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_create_terminal(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_terminal_output" => match serde_json::from_value::<crate::protocol::AcpTerminalOutputRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_terminal_output(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_wait_for_terminal_exit" => match serde_json::from_value::<crate::protocol::AcpWaitForTerminalExitRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_wait_for_terminal_exit(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_kill_terminal" => match serde_json::from_value::<crate::protocol::AcpKillTerminalRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_kill_terminal(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_release_terminal" => match serde_json::from_value::<crate::protocol::AcpReleaseTerminalRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_release_terminal(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_terminal_write_input" => match serde_json::from_value::<crate::protocol::AcpTerminalWriteInputRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_terminal_write_input(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_terminal_resize" => match serde_json::from_value::<crate::protocol::AcpTerminalResizeRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_terminal_resize(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
 
         unknown => Err(format!("unknown ACP method: {unknown}")),
     };
@@ -412,71 +451,220 @@ async fn handle_message(text: &str, app: &App) -> Value {
 
     let result: Result<Value, String> = match request.method.as_str() {
         // Document methods (sync, use AppState)
-        "document_open" => handlers::handle_document_open(&state, &request.params),
-        "document_close" => handlers::handle_document_close(&state, &request.params),
-        "document_edit" => handlers::handle_document_edit(&state, &request.params),
-        "document_set_content" => handlers::handle_document_set_content(&state, &request.params),
-        "document_get_content" => handlers::handle_document_get_content(&state, &request.params),
-        "document_get_info" => handlers::handle_document_get_info(&state, &request.params),
+        "document_open" => serde_json::from_value::<crate::protocol::DocumentOpenRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_document_open(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "document_close" => serde_json::from_value::<crate::protocol::DocumentCloseRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_document_close(&state, req)),
+        "document_edit" => serde_json::from_value::<crate::protocol::DocumentEditRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_document_edit(&state, req)),
+        "document_set_content" => serde_json::from_value::<crate::protocol::DocumentSetContentRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_document_set_content(&state, req)),
+        "document_get_content" => serde_json::from_value::<crate::protocol::DocumentGetContentRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_document_get_content(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "document_get_info" => serde_json::from_value::<crate::protocol::DocumentGetInfoRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_document_get_info(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Document methods (async, use AppState + IO)
-        "document_save" => handlers::handle_document_save(&state, &request.params).await,
+        "document_save" => match serde_json::from_value::<crate::protocol::DocumentSaveRequest>(request.params) {
+            Ok(req) => handlers::handle_document_save(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
 
         // Filesystem methods (async, no state needed)
-        "read_dir" => handlers::handle_read_dir(&request.params).await,
-        "read_file" => handlers::handle_read_file(&state, &request.params).await,
-        "write_file" => handlers::handle_write_file(&state, &request.params).await,
-        "exists" => handlers::handle_exists(&request.params).await,
-        "mkdir" => handlers::handle_mkdir(&request.params).await,
-        "remove" => handlers::handle_remove(&request.params).await,
-        "rename" => handlers::handle_rename(&request.params).await,
-        "stat" => handlers::handle_stat(&request.params).await,
-        "create_file" => handlers::handle_create_file(&request.params).await,
-        "create_dir" => handlers::handle_create_dir(&request.params).await,
+        "read_dir" => match serde_json::from_value::<crate::protocol::ReadDirRequest>(request.params) {
+            Ok(req) => handlers::handle_read_dir(req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "read_file" => match serde_json::from_value::<crate::protocol::ReadFileRequest>(request.params) {
+            Ok(req) => handlers::handle_read_file(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "write_file" => match serde_json::from_value::<crate::protocol::WriteFileRequest>(request.params) {
+            Ok(req) => handlers::handle_write_file(&state, req).await,
+            Err(e) => Err(e.to_string()),
+        },
+        "exists" => match serde_json::from_value::<crate::protocol::ExistsRequest>(request.params) {
+            Ok(req) => handlers::handle_exists(req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "remove" => match serde_json::from_value::<crate::protocol::RemoveRequest>(request.params) {
+            Ok(req) => handlers::handle_remove(req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "rename" => match serde_json::from_value::<crate::protocol::RenameRequest>(request.params) {
+            Ok(req) => handlers::handle_rename(req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "stat" => match serde_json::from_value::<crate::protocol::StatRequest>(request.params) {
+            Ok(req) => handlers::handle_stat(req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "create_file" => match serde_json::from_value::<crate::protocol::CreateFileRequest>(request.params) {
+            Ok(req) => handlers::handle_create_file(req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "create_dir" => match serde_json::from_value::<crate::protocol::CreateDirRequest>(request.params) {
+            Ok(req) => handlers::handle_create_dir(req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
 
         // Workspace methods
-        "get_current_workspace" => handlers::handle_get_current_workspace(&state, &request.params),
-        "workspace_open" => handlers::handle_workspace_open(&state, &request.params),
-        "workspace_expand" => handlers::handle_workspace_expand(&state, &request.params),
+        "get_current_workspace" => serde_json::from_value::<crate::protocol::GetCurrentWorkspaceRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_current_workspace(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "workspace_open" => serde_json::from_value::<crate::protocol::WorkspaceOpenRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_workspace_open(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "workspace_expand" => serde_json::from_value::<crate::protocol::WorkspaceExpandRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_workspace_expand(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Terminal methods (sync, use TerminalManager in AppState)
-        "terminal_spawn" => handlers::handle_terminal_spawn(&state, &request.params),
-        "terminal_write" => handlers::handle_terminal_write(&state, &request.params),
-        "terminal_resize" => handlers::handle_terminal_resize(&state, &request.params),
-        "terminal_kill" => handlers::handle_terminal_kill(&state, &request.params),
-        "terminal_info" => handlers::handle_terminal_info(&state, &request.params),
-        "get_default_shell" => handlers::handle_get_default_shell(&state, &request.params),
-        "get_available_shells" => handlers::handle_get_available_shells(&state, &request.params),
+        "terminal_spawn" => serde_json::from_value::<crate::protocol::TerminalSpawnRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_terminal_spawn(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "terminal_write" => serde_json::from_value::<crate::protocol::TerminalWriteRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_terminal_write(&state, req)),
+        "terminal_resize" => serde_json::from_value::<crate::protocol::TerminalResizeRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_terminal_resize(&state, req)),
+        "terminal_kill" => serde_json::from_value::<crate::protocol::TerminalKillRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_terminal_kill(&state, req)),
+        "terminal_info" => serde_json::from_value::<crate::protocol::TerminalInfoRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_terminal_info(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "get_default_shell" => serde_json::from_value::<crate::protocol::GetDefaultShellRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_default_shell(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "get_available_shells" => serde_json::from_value::<crate::protocol::GetAvailableShellsRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_available_shells(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Worktree state methods
-        "get_file_before_content" => handlers::handle_get_file_before_content(&state, &request.params).await,
-        "get_file_change" => handlers::handle_get_file_change(&state, &request.params).await,
+        "get_file_before_content" => match serde_json::from_value::<crate::protocol::GetFileBeforeContentRequest>(request.params) {
+            Ok(req) => handlers::handle_get_file_before_content(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "get_file_change" => match serde_json::from_value::<crate::protocol::GetFileChangeRequest>(request.params) {
+            Ok(req) => handlers::handle_get_file_change(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
 
         // Config methods
-        "get_config_path" => handlers::handle_get_config_path(&state, &request.params),
+        "get_config_path" => serde_json::from_value::<crate::protocol::GetConfigPathRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_config_path(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Session state methods (SQLite-backed)
-        "get_recent_workspaces" => handlers::handle_get_recent_workspaces(&state, &request.params),
-        "add_recent_workspace" => handlers::handle_add_recent_workspace(&state, &request.params),
+        "get_recent_workspaces" => serde_json::from_value::<crate::protocol::GetRecentWorkspacesRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_recent_workspaces(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "add_recent_workspace" => serde_json::from_value::<crate::protocol::AddRecentWorkspaceRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_add_recent_workspace(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Workspace layout methods (SQLite-backed)
-        "get_workspace_layout" => handlers::handle_get_workspace_layout(&state, &request.params),
-        "save_workspace_layout" => handlers::handle_save_workspace_layout(&state, &request.params),
+        "get_workspace_layout" => serde_json::from_value::<crate::protocol::GetWorkspaceLayoutRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_workspace_layout(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "save_workspace_layout" => serde_json::from_value::<crate::protocol::SaveWorkspaceLayoutRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_save_workspace_layout(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Explorer state methods (SQLite-backed)
-        "get_explorer_state" => handlers::handle_get_explorer_state(&state, &request.params),
-        "save_explorer_state" => handlers::handle_save_explorer_state(&state, &request.params),
+        "get_explorer_state" => serde_json::from_value::<crate::protocol::GetExplorerStateRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_explorer_state(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "save_explorer_state" => serde_json::from_value::<crate::protocol::SaveExplorerStateRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_save_explorer_state(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Tile state methods (SQLite-backed)
-        "get_tile_states" => handlers::handle_get_tile_states(&state, &request.params),
-        "save_tile_state" => handlers::handle_save_tile_state(&state, &request.params),
-        "delete_tile_state" => handlers::handle_delete_tile_state(&state, &request.params),
-        "clear_tile_states" => handlers::handle_clear_tile_states(&state, &request.params),
+        "get_tile_states" => serde_json::from_value::<crate::protocol::GetTileStatesRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_tile_states(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "save_tile_state" => serde_json::from_value::<crate::protocol::SaveTileStateRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_save_tile_state(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "delete_tile_state" => serde_json::from_value::<crate::protocol::DeleteTileStateRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_delete_tile_state(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "clear_tile_states" => serde_json::from_value::<crate::protocol::ClearTileStatesRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_clear_tile_states(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
         // Settings methods
-        "get_all_settings" => handlers::handle_get_all_settings(&state, &request.params),
-        "get_setting" => handlers::handle_get_setting(&state, &request.params),
-        "update_setting" => handlers::handle_update_setting(&state, &request.params),
+        "get_all_settings" => serde_json::from_value::<crate::protocol::GetAllSettingsRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_all_settings(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "get_setting" => serde_json::from_value::<crate::protocol::GetSettingRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_setting(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "update_setting" => serde_json::from_value::<crate::protocol::UpdateSettingRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_update_setting(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+
+        // ACP methods
+        "acp_relay" => match serde_json::from_value::<crate::protocol::AcpRelayRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_relay(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_spawn" => match serde_json::from_value::<crate::protocol::AcpSpawnRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_spawn(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_send" => match serde_json::from_value::<crate::protocol::AcpSendRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_send(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_kill" => match serde_json::from_value::<crate::protocol::AcpKillRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_kill(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_read_file" => match serde_json::from_value::<crate::protocol::AcpReadFileRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_read_file(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_write_file" => match serde_json::from_value::<crate::protocol::AcpWriteFileRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_write_file(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_create_terminal" => match serde_json::from_value::<crate::protocol::AcpCreateTerminalRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_create_terminal(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_terminal_output" => match serde_json::from_value::<crate::protocol::AcpTerminalOutputRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_terminal_output(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_wait_for_terminal_exit" => match serde_json::from_value::<crate::protocol::AcpWaitForTerminalExitRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_wait_for_terminal_exit(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_kill_terminal" => match serde_json::from_value::<crate::protocol::AcpKillTerminalRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_kill_terminal(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_release_terminal" => match serde_json::from_value::<crate::protocol::AcpReleaseTerminalRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_release_terminal(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_terminal_write_input" => match serde_json::from_value::<crate::protocol::AcpTerminalWriteInputRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_terminal_write_input(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "acp_terminal_resize" => match serde_json::from_value::<crate::protocol::AcpTerminalResizeRequest>(request.params) {
+            Ok(req) => handlers::handle_acp_terminal_resize(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
 
         // ACP control reports (frontend → backend)
         "acp_report_session_created" => {

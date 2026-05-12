@@ -4,6 +4,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import { Copy, ClipboardPaste, Trash2, BoxSelect } from "lucide-react";
 import { ws } from "../lib/ws-client";
+import { terminalApi } from "../lib/rpc";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -63,7 +64,7 @@ export default function TerminalPane({
     return () => {
       if (keepAlive) return;
       if (termIdRef.current !== null) {
-        ws.invoke("terminal_kill", { id: termIdRef.current }).catch(() => {});
+        terminalApi.kill({ id: termIdRef.current }).catch(() => {});
         termIdRef.current = null;
       }
       terminalRef.current?.dispose();
@@ -79,7 +80,7 @@ export default function TerminalPane({
 
     // Kill previous terminal if any
     if (termIdRef.current !== null) {
-      ws.invoke("terminal_kill", { id: termIdRef.current }).catch(() => {});
+        terminalApi.kill({ id: termIdRef.current }).catch(() => {});
       termIdRef.current = null;
     }
     terminalRef.current?.dispose();
@@ -152,8 +153,8 @@ export default function TerminalPane({
         if (dims && Number.isFinite(dims.cols) && Number.isFinite(dims.rows)) {
           if (resizeTimeout) clearTimeout(resizeTimeout);
           resizeTimeout = setTimeout(() => {
-            ws.invoke("terminal_resize", {
-              id: termIdRef.current,
+            terminalApi.resize({
+              id: termIdRef.current!,
               cols: dims.cols,
               rows: dims.rows,
             }).catch(() => {});
@@ -163,16 +164,18 @@ export default function TerminalPane({
     });
     resizeObserver.observe(containerRef.current);
 
-    ws.invoke<{ id: number }>("terminal_spawn", {
-      cwd: workspaceRoot,
-      cols: 80,
-      rows: 24,
-    })
+    terminalApi
+      .spawn({
+        cwd: workspaceRoot,
+        cols: 80,
+        rows: 24,
+        shell: null,
+      })
       .then(({ id }) => {
         termIdRef.current = id;
 
         terminal.onData((data) => {
-          ws.invoke("terminal_write", { id, data }).catch(() => {});
+          terminalApi.write({ id, data }).catch(() => {});
         });
 
         setTimeout(() => fitAddon.fit(), 100);
