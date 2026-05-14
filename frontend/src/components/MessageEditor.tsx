@@ -3,6 +3,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Mention from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
+import { Extension } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import {
   type SuggestionProps,
@@ -25,8 +26,11 @@ import type { ContentBlock } from "@agentclientprotocol/sdk";
 interface MessageEditorProps {
   workspaceRoot: string | null;
   disabled: boolean;
+  isStreaming?: boolean;
   placeholder: string;
+  queuedCount?: number;
   onSend: (blocks: ContentBlock[]) => void;
+  onCancel?: () => void;
 }
 
 interface MentionItem {
@@ -301,8 +305,11 @@ const mentionItemsRef = { current: [] as PopupItem[] };
 export default function MessageEditor({
   workspaceRoot,
   disabled,
+  isStreaming,
   placeholder,
+  queuedCount = 0,
   onSend,
+  onCancel,
 }: MessageEditorProps) {
   const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -315,19 +322,8 @@ export default function MessageEditor({
       mentionItemsRef.current = [];
       return;
     }
-    // Default context types + files from workspace
+
     const items: MentionItem[] = [
-      {
-        id: "file",
-        label: "File",
-        icon: "📄",
-        category: "Context",
-        resolve: () => ({
-          type: "resource_link",
-          uri: "file:///",
-          name: "File",
-        }),
-      },
       {
         id: "selection",
         label: "Selection",
@@ -340,13 +336,72 @@ export default function MessageEditor({
         }),
       },
     ];
-    setMentionItems(items);
-    mentionItemsRef.current = items.map((m) => ({
-      id: m.id,
-      label: m.label,
-      icon: m.icon,
-      category: m.category,
-    }));
+
+    // Fetch workspace files for @-mentions
+    const root = workspaceRoot; // narrowed by guard above
+    async function loadFiles() {
+      try {
+        const { fsApi } = await import("../lib/rpc");
+        const resp = await fsApi.readDir({ path: root });
+        const fileItems: MentionItem[] = [];
+        for (const entry of resp.entries) {
+          if (entry.isFile) {
+            fileItems.push({
+              id: entry.path,
+              label: entry.name,
+              icon: "📄",
+              category: "Files",
+              resolve: () => ({
+                type: "resource_link",
+                uri: `file://${entry.path}`,
+                name: entry.name,
+              }),
+            });
+          } else if (entry.isDir && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "target") {
+            // One-level deep scan for directories
+            try {
+              const subResp = await fsApi.readDir({ path: entry.path });
+              for (const sub of subResp.entries) {
+                if (sub.isFile) {
+                  fileItems.push({
+                    id: sub.path,
+                    label: `${entry.name}/${sub.name}`,
+                    icon: "📄",
+                    category: entry.name,
+                    resolve: () => ({
+                      type: "resource_link",
+                      uri: `file://${sub.path}`,
+                      name: sub.name,
+                    }),
+                  });
+                }
+              }
+            } catch {
+              // ignore subdir read errors
+            }
+          }
+        }
+        const all = [...items, ...fileItems];
+        setMentionItems(all);
+        mentionItemsRef.current = all.map((m) => ({
+          id: m.id,
+          label: m.label,
+          icon: m.icon,
+          category: m.category,
+        }));
+      } catch {
+        // Fallback to default items on error
+        setMentionItems(items);
+        mentionItemsRef.current = items.map((m) => ({
+          id: m.id,
+          label: m.label,
+          icon: m.icon,
+          category: m.category,
+        }));
+      }
+    }
+
+    loadFiles();
   }, [workspaceRoot]);
 
   // Stable extension that reads items from ref (not captured at creation time)
@@ -374,12 +429,36 @@ export default function MessageEditor({
     });
   }, []); // stable — items function reads from ref
 
+  // Ref so the keyboard shortcut extension always calls the latest callback
+  const handleSendRef = useRef(() => {});
+
+  const SendOnEnter = useMemo(() => {
+    return Extension.create({
+      name: "sendOnEnter",
+      addKeyboardShortcuts() {
+        return {
+          Enter: () => {
+            if (suggestionOpenRef.current) return false;
+            handleSendRef.current();
+            return true;
+          },
+          "Mod-Enter": () => {
+            if (suggestionOpenRef.current) return false;
+            handleSendRef.current();
+            return true;
+          },
+        };
+      },
+    });
+  }, []);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
       CustomMention,
       Image.configure({ allowBase64: true }),
       Placeholder.configure({ placeholder }),
+      SendOnEnter,
     ],
     content: "",
     editable: !disabled,
@@ -439,12 +518,6 @@ export default function MessageEditor({
         return true;
       },
       handleKeyDown: (view, event) => {
-        if (event.key === "Enter" && !event.shiftKey && !suggestionOpenRef.current) {
-          event.preventDefault();
-          handleSendClick();
-          return true;
-        }
-
         // Wrap selected text with paired characters
         const WRAP_PAIRS: Record<string, string> = {
           "(": ")",
@@ -496,58 +569,81 @@ export default function MessageEditor({
     editor.commands.clearContent();
   }, [editor, disabled, onSend]);
 
+  // Keep ref in sync so keyboard shortcut extension calls latest handler
+  handleSendRef.current = handleSendClick;
+
   if (!editor) return null;
 
   return (
     <div
-      className="px-3 py-2 border-t flex gap-2 shrink-0 backdrop-blur-md"
+      className="px-3 py-2 border-t shrink-0 backdrop-blur-md"
       style={{
         backgroundColor: "var(--theme-chat-input-bg)",
         borderColor: "var(--theme-border)",
       }}
     >
-      <div
-        ref={editorRef}
-        className={`flex-1 px-2.5 py-1.5 rounded-md text-text-primary text-[13px] outline-none min-h-[36px] max-h-[200px] overflow-y-auto backdrop-blur-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
-        style={{
-          backgroundColor: "var(--theme-elevated-40)",
-          border: "1px solid var(--theme-border)",
-        }}
-        onClick={() => !disabled && editor.chain().focus().run()}
-      >
-        <EditorContent editor={editor} />
+      {/* Queue indicator */}
+      {queuedCount > 0 && (
+        <div className="text-[11px] text-text-secondary mb-1 flex items-center gap-1">
+          <span>⏳</span>
+          <span>{queuedCount} message{queuedCount > 1 ? "s" : ""} queued</span>
+        </div>
+      )}
+      <div className="flex gap-2 items-end">
+        <div
+          ref={editorRef}
+          className={`flex-1 relative px-2.5 py-1.5 rounded-md text-text-primary text-[13px] outline-none min-h-[36px] max-h-[200px] overflow-y-auto backdrop-blur-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+          style={{
+            backgroundColor: "var(--theme-elevated-40)",
+            border: "1px solid var(--theme-border)",
+          }}
+          onClick={() => !disabled && editor.chain().focus().run()}
+        >
+          <EditorContent editor={editor} />
+          {/* Inline send/cancel button */}
+          <button
+            onClick={isStreaming ? onCancel : handleSendClick}
+            disabled={disabled && !isStreaming}
+            className="absolute right-1.5 bottom-1.5 w-7 h-7 flex items-center justify-center rounded-md text-[13px] border-none transition-all"
+            style={
+              isStreaming
+                ? {
+                    backgroundColor: "var(--theme-destructive)",
+                    color: "var(--theme-text-inverse)",
+                    cursor: "pointer",
+                  }
+                : !disabled
+                  ? {
+                      backgroundColor: "var(--theme-accent-80)",
+                      color: "var(--theme-text-inverse)",
+                      cursor: "pointer",
+                    }
+                  : {
+                      backgroundColor: "var(--theme-surface-50)",
+                      color: "var(--theme-text-secondary)",
+                      cursor: "default",
+                    }
+            }
+            onMouseEnter={(e) => {
+              if (isStreaming) {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive-80)";
+              } else if (!disabled) {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (isStreaming) {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive)";
+              } else if (!disabled) {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-80)";
+              }
+            }}
+            title={isStreaming ? "Cancel" : "Send"}
+          >
+            {isStreaming ? "⏹" : "➤"}
+          </button>
+        </div>
       </div>
-      <button
-        onClick={handleSendClick}
-        disabled={disabled}
-        className="px-4 py-1.5 rounded font-semibold text-[13px] border-none self-end transition-all"
-        style={
-          !disabled
-            ? {
-                backgroundColor: "var(--theme-accent-80)",
-                color: "var(--theme-text-inverse)",
-                cursor: "pointer",
-                boxShadow: "0 0 12px var(--theme-accent-faint)",
-              }
-            : {
-                backgroundColor: "var(--theme-surface-50)",
-                color: "var(--theme-text-secondary)",
-                cursor: "default",
-              }
-        }
-        onMouseEnter={(e) => {
-          if (!disabled) {
-            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent)";
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!disabled) {
-            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-80)";
-          }
-        }}
-      >
-        Send
-      </button>
     </div>
   );
 }

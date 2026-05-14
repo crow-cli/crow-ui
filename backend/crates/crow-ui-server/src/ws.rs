@@ -759,6 +759,8 @@ async fn create_session_handler(
             (StatusCode::OK, Json(serde_json::json!({
                 "sessionId": session.session_id,
                 "agentId": session.agent_id,
+                "configOptions": session.config_options,
+                "modes": session.modes,
             }))).into_response()
         }
         Err(e) => {

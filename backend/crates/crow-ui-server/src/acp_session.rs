@@ -40,6 +40,8 @@ pub struct AcpSession {
     pub agent_id: String,
     pub agent_name: String,
     pub cwd: String,
+    pub config_options: Option<Value>,
+    pub modes: Option<Value>,
 
     stdin_tx: mpsc::Sender<String>,
     pending_requests: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>,
@@ -157,6 +159,8 @@ impl AcpSession {
             agent_id: agent_id.clone(),
             agent_name: config.name.clone(),
             cwd: cwd.clone(),
+            config_options: None,
+            modes: None,
             stdin_tx,
             pending_requests,
             events_tx,
@@ -188,6 +192,8 @@ impl AcpSession {
             .context("newSession failed")?;
 
         session.session_id = new_session_resp.session_id.0.to_string();
+        session.config_options = serde_json::to_value(&new_session_resp.config_options).ok();
+        session.modes = serde_json::to_value(&new_session_resp.modes).ok();
         *session_id_cell.lock().await = session.session_id.clone();
 
         info!(

@@ -30,6 +30,16 @@ export interface AgentConfig {
   env?: string[];
 }
 
+export interface SessionConfigOption {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  type: string;
+  currentValue?: string;
+  options?: Array<{ name: string; description?: string; value: string }>;
+}
+
 export interface SessionInfo {
   sessionId: string;
   agentId: string;
@@ -40,6 +50,7 @@ export interface SessionInfo {
   initResponse?: any;
   modes?: any;
   models?: any;
+  configOptions?: SessionConfigOption[];
   availableCommands?: any[];
 }
 
@@ -141,6 +152,8 @@ export async function createSession(
       agentDisplayName: config.name,
       cwd,
       createdAt: new Date().toISOString(),
+      configOptions: result.configOptions || undefined,
+      modes: result.modes || undefined,
     },
     notifications: [],
     pendingPermission: null,
