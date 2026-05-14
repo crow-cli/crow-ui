@@ -253,6 +253,20 @@ export default function App() {
     return () => ws.disconnect();
   }, []);
 
+  // Subscribe to backend ACP session events
+  useEffect(() => {
+    const unsubEvent = ws.onAcpSessionEvent((sessionId, update) => {
+      acpStore.handleSessionEvent(sessionId, update);
+    });
+    const unsubDisconnect = ws.onAcpSessionDisconnected((sessionId) => {
+      acpStore.handleSessionDisconnected(sessionId);
+    });
+    return () => {
+      unsubEvent();
+      unsubDisconnect();
+    };
+  }, []);
+
   // Subscribe to backend ACP control commands
   useEffect(() => {
     return ws.onAcpCommand(async (method, params) => {
@@ -570,16 +584,6 @@ export default function App() {
       if (!layoutModelRef.current) return;
       const model = layoutModelRef.current;
       const chatId = `chat-${Date.now()}`;
-      let sessionId: string | null = null;
-      if (workspaceRootRef.current && agentConfigRef.current) {
-        try {
-          sessionId = await acpStore.createSession(agentConfigRef.current, workspaceRootRef.current);
-        } catch (err) {
-          console.error("[App] Failed to create chat session:", err);
-          return;
-        }
-      }
-      if (!sessionId) return;
 
       // Find an existing chat tabset, or create one in the right place
       let targetId = "chat-tabset";
@@ -599,22 +603,18 @@ export default function App() {
         });
       }
 
+      const tabJson = {
+        type: "tab" as const,
+        name: "Agent Chat",
+        component: "chat" as const,
+        config: {},
+        id: chatId,
+      };
+
       if (targetNode) {
         // Add to existing chat tabset
         model.doAction(
-          Actions.addTab(
-            {
-              type: "tab",
-              name: "Agent Chat",
-              component: "chat",
-              config: { sessionId },
-              id: chatId,
-            },
-            targetNode.getId(),
-            DockLocation.CENTER,
-            -1,
-            true,
-          ),
+          Actions.addTab(tabJson, targetNode.getId(), DockLocation.CENTER, -1, true),
         );
       } else {
         // No chat tabset exists — create one by adding a new tab to the right of the editor row
@@ -626,19 +626,7 @@ export default function App() {
             // Pass just the tab JSON — FlexLayout's RowNode.drop() will wrap it
             // in a new TabSetNode when docking to a non-CENTER location
             model.doAction(
-              Actions.addNode(
-                {
-                  type: "tab",
-                  name: "Agent Chat",
-                  component: "chat",
-                  config: { sessionId },
-                  id: chatId,
-                },
-                centerRow.getId(),
-                DockLocation.RIGHT,
-                -1,
-                true,
-              ),
+              Actions.addNode(tabJson, centerRow.getId(), DockLocation.RIGHT, -1, true),
             );
           }
         }
@@ -1155,21 +1143,10 @@ export default function App() {
       // Generate unique IDs
       const newTabId = `split-tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-      // For chat tabs: create a NEW session, don't clone the existing one
+      // For chat tabs: open disconnected — user clicks Connect to start session
       let newConfig: any = {};
       let newName = tabName;
       if (component === "chat") {
-        if (workspaceRootRef.current && agentConfigRef.current) {
-          try {
-            const sessionId = await acpStore.createSession(
-              agentConfigRef.current,
-              workspaceRootRef.current,
-            );
-            newConfig = { sessionId };
-          } catch (err) {
-            console.error("[App] Failed to create split session:", err);
-          }
-        }
         newName = "Agent Chat";
       } else {
         // For other tabs, clone the config
@@ -1253,14 +1230,16 @@ export default function App() {
       }
       case "chat": {
         const config = node.getConfig() || {};
-        const sessionId = config.sessionId || "chat-default";
+        const sessionId = config.sessionId as string | undefined;
         return (
           <ChatPane
             sessionId={sessionId}
             agentConfig={agentConfig}
             workspaceRoot={workspaceRoot}
             onClose={() => {
-              acpStore.closeSession(sessionId);
+              if (sessionId) {
+                acpStore.closeSession(sessionId);
+              }
               if (layoutModelRef.current) {
                 layoutModelRef.current.doAction(
                   Actions.deleteTab(node.getId()),

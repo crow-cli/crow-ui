@@ -43,6 +43,8 @@ export class WsClient {
   private rawMessageHandlers = new Set<(event: MessageEvent) => void>();
   private settingsHandlers = new Set<(key: string) => void>();
   private acpCommandHandlers = new Set<(method: string, params: Record<string, unknown>) => void>();
+  private acpSessionHandlers = new Set<(sessionId: string, update: unknown) => void>();
+  private acpSessionDisconnectHandlers = new Set<(sessionId: string) => void>();
   private worktreeHandlers = new Set<(method: string, params: Record<string, unknown>) => void>();
 
   constructor(private url: string) {}
@@ -121,6 +123,17 @@ export class WsClient {
       for (const handler of this.acpCommandHandlers) {
         handler(method, params);
       }
+    } else if (method === "acp-session-event") {
+      const sessionId = params.sessionId as string;
+      const update = params.update;
+      for (const handler of this.acpSessionHandlers) {
+        handler(sessionId, update);
+      }
+    } else if (method === "acp-session-disconnected") {
+      const sessionId = params.sessionId as string;
+      for (const handler of this.acpSessionDisconnectHandlers) {
+        handler(sessionId);
+      }
     } else if (method.startsWith("worktree-file-")) {
       for (const handler of this.worktreeHandlers) {
         handler(method, params);
@@ -141,6 +154,16 @@ export class WsClient {
   onAcpCommand(handler: (method: string, params: Record<string, unknown>) => void): () => void {
     this.acpCommandHandlers.add(handler);
     return () => this.acpCommandHandlers.delete(handler);
+  }
+
+  onAcpSessionEvent(handler: (sessionId: string, update: unknown) => void): () => void {
+    this.acpSessionHandlers.add(handler);
+    return () => this.acpSessionHandlers.delete(handler);
+  }
+
+  onAcpSessionDisconnected(handler: (sessionId: string) => void): () => void {
+    this.acpSessionDisconnectHandlers.add(handler);
+    return () => this.acpSessionDisconnectHandlers.delete(handler);
   }
 
   onWorktreeEvent(handler: (method: string, params: Record<string, unknown>) => void): () => void {

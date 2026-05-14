@@ -194,8 +194,7 @@ export default function InlineTerminal({
 
 
 
-  // Listen for ACP terminal exit events via WebSocket.
-  // Data updates are handled by the initial fetch + periodic polling.
+  // Listen for ACP terminal data + exit events via WebSocket.
   useEffect(() => {
     const terminal = terminalRef.current;
     if (!terminal) return;
@@ -206,11 +205,15 @@ export default function InlineTerminal({
     const handleMessage = (event: MessageEvent) => {
       try {
         const msg = JSON.parse(event.data);
-        // Only handle exit events — data is fetched via polling
-        if (
-          msg.method === "acp-terminal-exit" &&
-          msg.params?.terminalId === terminalId
-        ) {
+        if (msg.params?.terminalId !== terminalId) return;
+
+        if (msg.method === "acp-terminal-data") {
+          const data = msg.params?.data;
+          if (typeof data === "string" && data) {
+            terminal.write(data);
+            lastOutputLengthRef.current += data.length;
+          }
+        } else if (msg.method === "acp-terminal-exit") {
           statusRef.current = "exited";
           setStatus("exited");
           const code = msg.params.exitCode ?? -1;

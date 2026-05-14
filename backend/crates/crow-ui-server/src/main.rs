@@ -38,12 +38,18 @@ fn parse_config_dir() -> PathBuf {
 
 #[tokio::main]
 async fn main() {
+    let config_dir = parse_config_dir();
+    let log_dir = config_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).ok();
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "crow-ui-server");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(non_blocking)
         .init();
 
     let port = parse_port();
-    let config_dir = parse_config_dir();
     eprintln!("[crow-ui-server] config_dir={:?} port={}", config_dir, port);
 
     // Set up terminal event broadcasting:

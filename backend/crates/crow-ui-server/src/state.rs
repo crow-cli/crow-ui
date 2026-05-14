@@ -9,6 +9,7 @@ use crow_ui_workspace::{Workspace, WorktreeState};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use serde_json::Value;
+use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 
 /// Migrate legacy `murder.json` (nested JSONC) to `crow-ui-settings.json` (flat JSON).
@@ -83,7 +84,9 @@ pub struct AppState {
     /// Broadcast channel for terminal events → all connected WebSocket clients.
     pub terminal_events_tx: broadcast::Sender<String>,
     /// ACP agent process manager (uses tokio::sync::Mutex internally).
-    pub agents: AgentManager,
+    pub agents: Arc<AgentManager>,
+    /// Backend-owned ACP sessions.
+    pub acp_sessions: crate::acp_session::AcpSessionManager,
     /// Worktree state tracker — knows file content before/after changes.
     pub worktree_state: Mutex<WorktreeState>,
     /// Broadcast channel for worktree events → all connected WebSocket clients.
@@ -100,6 +103,8 @@ pub struct AppState {
     /// Pending synchronous ACP commands waiting for frontend response.
     /// Key: request_id, Value: oneshot sender for the response.
     pub acp_pending: DashMap<String, oneshot::Sender<Value>>,
+    /// Broadcast channel for backend ACP session events → all connected frontends.
+    pub acp_session_events_tx: broadcast::Sender<crate::acp_session::SessionEvent>,
 }
 
 impl AppState {
@@ -115,6 +120,7 @@ impl AppState {
         let worktree_events_tx = broadcast::Sender::new(256);
         let settings_events_tx = broadcast::Sender::new(16);
         let acp_cmd_tx = broadcast::Sender::new(256);
+        let acp_session_events_tx = broadcast::Sender::new(1024);
         let _ = std::fs::create_dir_all(config_dir);
         let db_path = config_dir.join("state.db");
         let db = Database::open(&db_path).expect("failed to open state database");
@@ -126,12 +132,14 @@ impl AppState {
             let _ = settings.load_user(&settings_path);
         }
 
+        let agents = Arc::new(AgentManager::new());
         Self {
             documents: DashMap::new(),
             workspace: Mutex::new(None),
             terminals: Mutex::new(tm),
             terminal_events_tx: broadcast::Sender::new(1024),
-            agents: AgentManager::new(),
+            agents: agents.clone(),
+            acp_sessions: crate::acp_session::AcpSessionManager::new(agents),
             worktree_state: Mutex::new(WorktreeState::new(worktree_events_tx.clone())),
             worktree_events_tx,
             db: Mutex::new(db),
@@ -139,6 +147,7 @@ impl AppState {
             settings_events_tx,
             acp_cmd_tx,
             acp_pending: DashMap::new(),
+            acp_session_events_tx,
         }
     }
 
@@ -146,6 +155,7 @@ impl AppState {
         let worktree_events_tx = broadcast::Sender::new(256);
         let settings_events_tx = broadcast::Sender::new(16);
         let acp_cmd_tx = broadcast::Sender::new(256);
+        let acp_session_events_tx = broadcast::Sender::new(1024);
         let _ = std::fs::create_dir_all(config_dir);
         let db_path = config_dir.join("state.db");
         let db = Database::open(&db_path).expect("failed to open state database");
@@ -157,12 +167,14 @@ impl AppState {
             let _ = settings.load_user(&settings_path);
         }
 
+        let agents = Arc::new(AgentManager::new());
         Self {
             documents: DashMap::new(),
             workspace: Mutex::new(None),
             terminals: Mutex::new(tm),
             terminal_events_tx: tx,
-            agents: AgentManager::new(),
+            agents: agents.clone(),
+            acp_sessions: crate::acp_session::AcpSessionManager::new(agents),
             worktree_state: Mutex::new(WorktreeState::new(worktree_events_tx.clone())),
             worktree_events_tx,
             db: Mutex::new(db),
@@ -170,6 +182,7 @@ impl AppState {
             settings_events_tx,
             acp_cmd_tx,
             acp_pending: DashMap::new(),
+            acp_session_events_tx,
         }
     }
 

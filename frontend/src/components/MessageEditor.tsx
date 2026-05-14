@@ -447,7 +447,7 @@ export default function MessageEditor({
         return false;
       },
     },
-  });
+  }, [placeholder]);
 
   // Sync editable state after editor initializes (disabled prop may change before editor is ready)
   useEffect(() => {
@@ -460,7 +460,12 @@ export default function MessageEditor({
     if (!editor || disabled) return;
     const json = editor.getJSON();
     const blocks = extractContentBlocks(json);
-    if (blocks.length === 0) return;
+    // Defensive: check if we actually have content (not just empty paragraphs)
+    const hasContent = blocks.some((b) => {
+      if (b.type === "text") return (b.text || "").trim().length > 0;
+      return true; // images, mentions always count
+    });
+    if (!hasContent) return;
     onSend(blocks);
     editor.commands.clearContent();
   }, [editor, disabled, onSend]);
@@ -488,10 +493,10 @@ export default function MessageEditor({
       </div>
       <button
         onClick={handleSendClick}
-        disabled={disabled || editor.isEmpty}
+        disabled={disabled}
         className="px-4 py-1.5 rounded font-semibold text-[13px] border-none self-end transition-all"
         style={
-          !disabled && !editor.isEmpty
+          !disabled
             ? {
                 backgroundColor: "var(--theme-accent-80)",
                 color: "var(--theme-text-inverse)",
@@ -505,12 +510,12 @@ export default function MessageEditor({
               }
         }
         onMouseEnter={(e) => {
-          if (!disabled && !editor.isEmpty) {
+          if (!disabled) {
             (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent)";
           }
         }}
         onMouseLeave={(e) => {
-          if (!disabled && !editor.isEmpty) {
+          if (!disabled) {
             (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-80)";
           }
         }}

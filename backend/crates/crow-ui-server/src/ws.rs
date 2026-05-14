@@ -20,6 +20,8 @@ use rust_embed::RustEmbed;
 use serde_json::Value;
 use tokio::sync::{broadcast, Mutex};
 
+use agent_client_protocol_schema as acp;
+use crate::acp_session::SessionEvent;
 use crate::handlers;
 use crate::router::{WsError, WsNotification, WsRequest, WsResponse};
 use crate::state::AppState;
@@ -103,6 +105,12 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
     let mut acp_cmd_rx = {
         let state = app.lock().await;
         state.acp_cmd_tx.subscribe()
+    };
+
+    // Subscribe to backend ACP session events (session updates → frontend)
+    let mut acp_session_rx = {
+        let state = app.lock().await;
+        state.acp_session_events_tx.subscribe()
     };
 
     loop {
@@ -267,6 +275,42 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
                         if let Err(e) = socket.send(Message::Text(json)).await {
                             tracing::warn!("Failed to push ACP command: {e}");
                             break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+            // Backend ACP session event → frontend
+            acp_session_event = acp_session_rx.recv() => {
+                match acp_session_event {
+                    Ok(SessionEvent::Update { session_id, update }) => {
+                        let notification = WsNotification {
+                            method: "acp-session-event".into(),
+                            params: serde_json::json!({
+                                "sessionId": session_id,
+                                "update": update,
+                            }),
+                        };
+                        if let Ok(json) = serde_json::to_string(&notification) {
+                            if let Err(e) = socket.send(Message::Text(json)).await {
+                                tracing::warn!("Failed to push ACP session event: {e}");
+                                break;
+                            }
+                        }
+                    }
+                    Ok(SessionEvent::Disconnected { session_id }) => {
+                        let notification = WsNotification {
+                            method: "acp-session-disconnected".into(),
+                            params: serde_json::json!({ "sessionId": session_id }),
+                        };
+                        if let Ok(json) = serde_json::to_string(&notification) {
+                            if let Err(e) = socket.send(Message::Text(json)).await {
+                                tracing::warn!("Failed to push ACP disconnect: {e}");
+                                break;
+                            }
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -700,94 +744,99 @@ async fn create_session_handler(
     State(app): State<App>,
     axum::Json(body): axum::Json<Value>,
 ) -> impl IntoResponse {
-    let request_id = format!("req-{}", uuid::Uuid::new_v4());
-    let input_session_id = body.get("inputSessionId").and_then(|v| v.as_str());
-    let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("agent").to_string();
+    let command = body.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let args: Vec<String> = body.get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let env: Vec<String> = body.get("env")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
 
-    // Store pending request
-    {
-        let state = app.lock().await;
-        state.acp_pending.insert(request_id.clone(), tx);
-    }
+    let state = app.lock().await;
+    let forward_tx = state.acp_session_events_tx.clone();
 
-    // Broadcast command to frontend
-    let notification = WsNotification {
-        method: "acp-command-new-session".into(),
-        params: serde_json::json!({
-            "requestId": request_id,
-            "inputSessionId": input_session_id,
-        }),
-    };
-    let broadcast_json = serde_json::to_string(&notification).unwrap_or_default();
-
-    {
-        let state = app.lock().await;
-        let _ = state.acp_cmd_tx.send(broadcast_json);
-    }
-
-    // Wait for frontend response (timeout after 30s)
-    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
-        Ok(Ok(result)) => {
-            let session_id = result.get("sessionId").and_then(|v| v.as_str());
-            match session_id {
-                Some(id) => {
-                    let mut resp = serde_json::json!({ "sessionId": id });
-                    if let Some(input_id) = input_session_id {
-                        resp["inputSessionId"] = serde_json::Value::String(input_id.to_string());
-                    }
-                    (StatusCode::OK, Json(resp)).into_response()
-                }
-                None => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Missing sessionId in response" }))).into_response(),
-            }
+    match state.acp_sessions.create_session(name, command, args, env, cwd, forward_tx).await {
+        Ok(session) => {
+            (StatusCode::OK, Json(serde_json::json!({
+                "sessionId": session.session_id,
+                "agentId": session.agent_id,
+            }))).into_response()
         }
-        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Channel closed" }))).into_response(),
-        Err(_) => {
-            // Clean up pending request on timeout
-            let state = app.lock().await;
-            state.acp_pending.remove(&request_id);
-            (StatusCode::GATEWAY_TIMEOUT, Json(serde_json::json!({ "error": "Timeout waiting for frontend" }))).into_response()
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Failed to create session: {e}")
+            }))).into_response()
         }
     }
 }
 
 /// HTTP handler: POST /api/acp/sessions/:session_id/prompt
-/// Async — broadcasts prompt command to frontend, returns immediately.
+/// Sends prompt to backend-owned ACP session.
 async fn prompt_session_handler(
     Path(session_id): Path<String>,
     State(app): State<App>,
     axum::Json(body): axum::Json<Value>,
 ) -> impl IntoResponse {
-    let notification = WsNotification {
-        method: "acp-command-prompt".into(),
-        params: serde_json::json!({
-            "sessionId": session_id,
-            "blocks": body.get("blocks").unwrap_or(&serde_json::Value::Null),
-        }),
-    };
-    let broadcast_json = serde_json::to_string(&notification).unwrap_or_default();
-
     let state = app.lock().await;
-    let _ = state.acp_cmd_tx.send(broadcast_json);
+    let session = match state.acp_sessions.get_session(&session_id).await {
+        Some(s) => s,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": format!("Session not found: {session_id}")
+            }))).into_response();
+        }
+    };
 
-    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "queued" })))
+    let blocks: Vec<acp::ContentBlock> = match body.get("blocks") {
+        Some(arr) => match serde_json::from_value(arr.clone()) {
+            Ok(b) => b,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    "error": format!("Invalid blocks: {e}")
+                }))).into_response();
+            }
+        },
+        None => vec![],
+    };
+
+    drop(state);
+
+    match session.prompt(blocks).await {
+        Ok(()) => (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "prompted" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": format!("Prompt failed: {e}")
+        }))).into_response(),
+    }
 }
 
 /// HTTP handler: POST /api/acp/sessions/:session_id/cancel
-/// Async — broadcasts cancel command to frontend, returns immediately.
+/// Cancels current prompt turn on backend-owned ACP session.
 async fn cancel_session_handler(
     Path(session_id): Path<String>,
     State(app): State<App>,
 ) -> impl IntoResponse {
-    let notification = WsNotification {
-        method: "acp-command-cancel".into(),
-        params: serde_json::json!({ "sessionId": session_id }),
-    };
-    let broadcast_json = serde_json::to_string(&notification).unwrap_or_default();
-
     let state = app.lock().await;
-    let _ = state.acp_cmd_tx.send(broadcast_json);
+    let session = match state.acp_sessions.get_session(&session_id).await {
+        Some(s) => s,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": format!("Session not found: {session_id}")
+            }))).into_response();
+        }
+    };
 
-    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "queued" })))
+    drop(state);
+
+    match session.cancel().await {
+        Ok(()) => (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "cancelled" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": format!("Cancel failed: {e}")
+        }))).into_response(),
+    }
 }
 
 /// Serve embedded frontend assets.

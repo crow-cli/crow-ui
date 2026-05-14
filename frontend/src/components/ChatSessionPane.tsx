@@ -9,7 +9,7 @@ import {
   type AcpNotification,
   type ConnectionStatus,
   type SessionInfo,
-} from "../lib/acp-client";
+} from "../lib/acp-store";
 import { groupNotifications, mergeToolCalls } from "../lib/acp-utils";
 import * as acpStore from "../lib/acp-store";
 import { getCachedFile, cacheFile } from "../lib/file-cache";

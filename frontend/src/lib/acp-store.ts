@@ -1,23 +1,51 @@
 /**
- * Multi-session ACP store — supports multiple concurrent agent sessions.
+ * Multi-session ACP store — backend owns sessions, frontend is a passive viewer.
  *
- * Each session has its own AcpClient, state, and notification stream.
- * Backwards compatible: default session helpers still work.
+ * Each session has state and a notification stream populated by backend
+ * session/update events over the main WebSocket.
  */
 
-import {
-  AcpClient,
-  type AcpNotification,
-  type AgentConfig,
-  type ConnectionStatus,
-  type SessionInfo,
-} from "./acp-client";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 
-// ─── Per-session state ───────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
+
+export type ConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "initializing"
+  | "creating_session"
+  | "ready";
+
+export interface AcpNotification {
+  id: string;
+  type: "session_notification" | "connection_change" | "error";
+  data: unknown;
+}
+
+export interface AgentConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: string[];
+}
+
+export interface SessionInfo {
+  sessionId: string;
+  agentId: string;
+  agentName: string;
+  agentDisplayName: string;
+  cwd: string;
+  createdAt: string;
+  initResponse?: any;
+  modes?: any;
+  models?: any;
+  availableCommands?: any[];
+}
+
+// ─── Per-session state ─────────────────────────────────────────────────────
 
 interface SessionState {
-  client: AcpClient | null;
   status: ConnectionStatus;
   sessionInfo: SessionInfo | null;
   notifications: AcpNotification[];
@@ -30,7 +58,7 @@ interface SessionState {
   agentConfig: AgentConfig | null;
 }
 
-// ─── Global state ────────────────────────────────────────────────────────────
+// ─── Global state ──────────────────────────────────────────────────────────
 
 const sessions = new Map<string, SessionState>();
 let defaultSessionId: string | null = null;
@@ -65,88 +93,69 @@ function setSessionState(
   notifySession(sessionId);
 }
 
-// ─── Session lifecycle ───────────────────────────────────────────────────────
+// ─── Session lifecycle ─────────────────────────────────────────────────────
 
-/** Initialize the default session (backwards compat). */
-export async function initialize(config: AgentConfig, cwd: string): Promise<string> {
+export async function initialize(
+  config: AgentConfig,
+  cwd: string,
+): Promise<string> {
   const sessionId = await createSession(config, cwd);
   defaultSessionId = sessionId;
   return sessionId;
 }
 
-/** Create a session, connect to the agent, and return the real session ID. */
 export async function createSession(
   config: AgentConfig,
   cwd: string,
 ): Promise<string> {
-    const sessionRef = { current: null as string | null };
-
-  const client = new AcpClient({
-    agentConfig: config,
-    cwd,
-    onNotification: (n) => {
-      const id = sessionRef.current;
-      if (!id) return;
-      const s = sessions.get(id);
-      if (s) {
-        s.notifications = [...s.notifications, n];
-        notifySession(id);
-      }
-    },
-    onStatusChange: (s2) => {
-      const id = sessionRef.current;
-      if (!id) return;
-      setSessionState(id, { status: s2 });
-    },
-    onPermissionRequest: (req, resolve, reject) => {
-      const id = sessionRef.current;
-      if (!id) return;
-      setSessionState(id, {
-        pendingPermission: { request: req, resolve, reject },
-      });
-    },
+  const response = await fetch("/api/acp/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: config.name,
+      command: config.command,
+      args: config.args || [],
+      env: config.env || [],
+      cwd,
+    }),
   });
 
-  (window as any).__acp_client = client;
-
-  try {
-    const info = await client.connect();
-    const sessionId = info.sessionId;
-
-    if (sessions.has(sessionId)) {
-      client.disconnect().catch(() => {});
-      return sessionId;
-    }
-
-    sessionRef.current = sessionId;
-
-    const state: SessionState = {
-      client,
-      status: "ready",
-      sessionInfo: info,
-      notifications: [],
-      pendingPermission: null,
-      cwd,
-      agentConfig: config,
-    };
-    sessions.set(sessionId, state);
-
-    if (!defaultSessionId) defaultSessionId = sessionId;
-    notifyMeta();
-    notifySession(sessionId);
-    return sessionId;
-  } catch (err) {
-    console.error(`[acp-store] Session connect failed:`, err);
-    client.disconnect().catch(() => {});
-    throw err;
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
   }
+
+  const result = await response.json();
+  const sessionId = result.sessionId as string;
+
+  if (sessions.has(sessionId)) {
+    return sessionId;
+  }
+
+  const state: SessionState = {
+    status: "ready",
+    sessionInfo: {
+      sessionId,
+      agentId: result.agentId || "",
+      agentName: config.name,
+      agentDisplayName: config.name,
+      cwd,
+      createdAt: new Date().toISOString(),
+    },
+    notifications: [],
+    pendingPermission: null,
+    cwd,
+    agentConfig: config,
+  };
+  sessions.set(sessionId, state);
+
+  if (!defaultSessionId) defaultSessionId = sessionId;
+  notifyMeta();
+  notifySession(sessionId);
+  return sessionId;
 }
 
 export function closeSession(sessionId: string): void {
-  const session = sessions.get(sessionId);
-  if (session?.client) {
-    session.client.disconnect().catch(() => {});
-  }
   sessions.delete(sessionId);
   sessionSubscribers.delete(sessionId);
 
@@ -172,12 +181,36 @@ export function clearNotifications(sessionId?: string) {
   }
 }
 
-// ─── Subscriptions ───────────────────────────────────────────────────────────
+// ─── WebSocket event routing ───────────────────────────────────────────────
 
-/** Backwards compat — subscribes to the default session. */
-export function subscribe(
-  cb: (state: SessionState) => void,
-): () => void {
+/** Called by ws-client when it receives an acp-session-event message. */
+export function handleSessionEvent(sessionId: string, update: unknown) {
+  const state = sessions.get(sessionId);
+  if (!state) {
+    console.warn(`[acp-store] handleSessionEvent: session ${sessionId} not found, dropping update`);
+    return;
+  }
+
+  const notification: AcpNotification = {
+    id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type: "session_notification",
+    data: { update },
+  };
+  state.notifications = [...state.notifications, notification];
+  notifySession(sessionId);
+}
+
+/** Called by ws-client when a session disconnects. */
+export function handleSessionDisconnected(sessionId: string) {
+  const state = sessions.get(sessionId);
+  if (!state) return;
+  state.status = "disconnected";
+  notifySession(sessionId);
+}
+
+// ─── Subscriptions ─────────────────────────────────────────────────────────
+
+export function subscribe(cb: (state: SessionState) => void): () => void {
   return subscribeToSession(defaultSessionId || "", cb);
 }
 
@@ -189,7 +222,6 @@ export function subscribeToSession(
     sessionSubscribers.set(sessionId, new Set());
   }
   sessionSubscribers.get(sessionId)!.add(cb);
-  // Call immediately with current state
   const state = sessions.get(sessionId);
   if (state) cb(state);
   return () => {
@@ -203,7 +235,7 @@ export function subscribeToMeta(cb: MetaSubscriber): () => void {
   return () => metaSubscribers.delete(cb);
 }
 
-// ─── Getters ─────────────────────────────────────────────────────────────────
+// ─── Getters ───────────────────────────────────────────────────────────────
 
 export function getState(): SessionState {
   return getSession(defaultSessionId || "");
@@ -212,7 +244,6 @@ export function getState(): SessionState {
 export function getSession(sessionId: string): SessionState {
   return (
     sessions.get(sessionId) || {
-      client: null,
       status: "disconnected",
       sessionInfo: null,
       notifications: [],
@@ -231,22 +262,24 @@ export function getSessionIds(): string[] {
   return Array.from(sessions.keys());
 }
 
-// Expose client for imperative calls (prompt, cancel, etc.)
-export function getClient(sessionId?: string): AcpClient | null {
-  const id = sessionId ?? defaultSessionId;
-  if (!id) return null;
-  return sessions.get(id)?.client ?? null;
+/** Stub — backend handles ACP client directly. Returns null for backward compat. */
+export function getClient(_sessionId?: string): any {
+  return null;
 }
 
-// ─── Actions ─────────────────────────────────────────────────────────────────
+/** Stub — backend tracks terminal IDs. Returns undefined for backward compat. */
+export function getTerminalId(_toolCallId: string, _sessionId?: string): string | undefined {
+  return undefined;
+}
+
+// ─── Actions ───────────────────────────────────────────────────────────────
 
 export async function prompt(sessionId: string, blocks: ContentBlock[]) {
-  const client = getClient(sessionId);
-  if (!client) throw new Error("No client for session");
-
-  // Add user message to local notifications so it appears in chat immediately
+  // Add user message to local notifications FIRST so it appears before agent response
   const userText = blocks
-    .map((b) => (b.type === "text" ? b.text : b.type === "image" ? "[Image]" : "[File]"))
+    .map((b) =>
+      b.type === "text" ? b.text : b.type === "image" ? "[Image]" : "[File]",
+    )
     .join("");
   if (userText) {
     const state = sessions.get(sessionId);
@@ -266,22 +299,29 @@ export async function prompt(sessionId: string, blocks: ContentBlock[]) {
     }
   }
 
-  return client.prompt(blocks);
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/prompt`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blocks }),
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
 }
 
 export async function cancel(sessionId: string) {
-  const client = getClient(sessionId);
-  if (!client) return;
-  return client.cancel();
-}
-
-// Expose terminal ID mapping for inline terminal rendering
-export function getTerminalId(
-  toolCallId: string,
-  sessionId?: string,
-): string | undefined {
-  const id = sessionId ?? defaultSessionId;
-  if (!id) return undefined;
-  const client = getClient(id);
-  return client?.getTerminalId(toolCallId);
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
 }

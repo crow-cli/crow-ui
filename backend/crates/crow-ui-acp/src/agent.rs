@@ -32,13 +32,15 @@ pub struct AgentInstance {
     pub process: Child,
     /// JSON-RPC messages to agent stdin
     pub stdin_tx: tokio::sync::mpsc::Sender<String>,
+    /// Raw stdout line broadcast channel (per-agent so sessions don't cross-read)
+    pub events_tx_raw: broadcast::Sender<String>,
 }
 
 /// Manages spawned agent subprocesses.
 pub struct AgentManager {
     agents: Mutex<HashMap<String, AgentInstance>>,
     next_id: Mutex<u64>,
-    /// Broadcast channel for agent stdout messages → all interested parties.
+    /// Broadcast channel for wrapped agent stdout messages → frontend AcpClient.
     pub events_tx: broadcast::Sender<String>,
     /// ACP terminal sessions spawned by agents.
     pub terminals: Arc<AcpTerminalManager>,
@@ -89,6 +91,8 @@ impl AgentManager {
 
         // Create channel for sending messages to agent stdin
         let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(1024);
+        // Per-agent raw stdout channel so sessions don't cross-read
+        let events_tx_raw = broadcast::Sender::<String>::new(1024);
 
         // Task: pump messages from channel → agent stdin
         tokio::spawn(async move {
@@ -101,8 +105,9 @@ impl AgentManager {
             }
         });
 
-        // Task: pump lines from agent stdout → broadcast channel (JSON-RPC protocol)
+        // Task: pump lines from agent stdout → broadcast channels (raw + wrapped)
         let events_tx = self.events_tx.clone();
+        let events_tx_raw_clone = events_tx_raw.clone();
         let agent_id = id.clone();
         tokio::spawn(async move {
             let mut buf = String::new();
@@ -113,6 +118,7 @@ impl AgentManager {
                     Ok(_) => {
                         let trimmed = buf.trim();
                         if !trimmed.is_empty() {
+                            let _ = events_tx_raw_clone.send(trimmed.to_string());
                             broadcast_line(&events_tx, &agent_id, trimmed);
                         }
                         buf.clear();
@@ -151,6 +157,7 @@ impl AgentManager {
         let instance = AgentInstance {
             process,
             stdin_tx,
+            events_tx_raw,
         };
 
         self.agents.lock().await.insert(id.clone(), instance);
@@ -161,6 +168,11 @@ impl AgentManager {
     /// Get the stdin sender for an agent.
     pub async fn get_stdin(&self, agent_id: &str) -> Option<tokio::sync::mpsc::Sender<String>> {
         self.agents.lock().await.get(agent_id).map(|a| a.stdin_tx.clone())
+    }
+
+    /// Get the raw stdout broadcast sender for an agent.
+    pub async fn get_events_tx_raw(&self, agent_id: &str) -> Option<broadcast::Sender<String>> {
+        self.agents.lock().await.get(agent_id).map(|a| a.events_tx_raw.clone())
     }
 
     /// Kill an agent process.

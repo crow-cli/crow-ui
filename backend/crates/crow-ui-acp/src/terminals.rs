@@ -315,11 +315,34 @@ impl AcpTerminalManager {
     }
 
     pub async fn release_terminal(&self, id: &str) -> bool {
-        if let Some(term) = self.inner.terminals.lock().await.remove(id) {
-            let t = term.lock().await;
+        let term = {
+            let terminals = self.inner.terminals.lock().await;
+            terminals.get(id).cloned()
+        };
+        if let Some(term) = term {
+            let mut t = term.lock().await;
             if let Some(ref pty) = t.pty {
                 let _ = pty.kill_tree();
             }
+            t.exited = true;
+            drop(t);
+
+            // Keep terminal in map for 30s so frontend can still fetch output,
+            // then clean it up.
+            let inner = self.inner.clone();
+            let id = id.to_string();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                let mut terminals = inner.terminals.lock().await;
+                if let Some(t) = terminals.get(&id) {
+                    let term = t.lock().await;
+                    // Only remove if it's been released (exited and PTY killed)
+                    if term.exited {
+                        drop(term);
+                        terminals.remove(&id);
+                    }
+                }
+            });
             true
         } else {
             false

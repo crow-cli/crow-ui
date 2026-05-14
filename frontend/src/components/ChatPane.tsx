@@ -11,7 +11,7 @@ import {
   type ConnectionStatus,
   type SessionInfo,
   type AgentConfig,
-} from "../lib/acp-client";
+} from "../lib/acp-store";
 import { groupNotifications, mergeToolCalls } from "../lib/acp-utils";
 import * as acpStore from "../lib/acp-store";
 import { getCachedFile, cacheFile } from "../lib/file-cache";
@@ -30,7 +30,7 @@ type GroupItem = GroupedNotifications[number][number];
 /** Cache for file contents used in diffs — kept for backward compat */
 
 interface ChatPaneProps {
-  sessionId: string;
+  sessionId?: string;
   agentConfig: AgentConfig;
   workspaceRoot: string | null;
   onClose: () => void;
@@ -58,37 +58,43 @@ export default function ChatPane({
   const [fetchedFiles, setFetchedFiles] = useState<
     Map<string, { path: string; content: string; beforeContent?: string }>
   >(new Map());
+  const [isConnectingLocal, setIsConnectingLocal] = useState(false);
+  const [localSessionId, setLocalSessionId] = useState<string | undefined>(undefined);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevNotifLen = useRef(0);
 
+  const effectiveSessionId = sessionId || localSessionId;
+  const activeSessionId = effectiveSessionId || "disconnected";
+
   // Sync from store
   useEffect(() => {
-    const s = acpStore.getSession(sessionId);
+    const s = acpStore.getSession(activeSessionId);
+    console.log(`[ChatPane] sync effect activeSessionId=${activeSessionId} status=${s.status} notifs=${s.notifications.length}`);
     setNotifications(s.notifications);
     setConnectionStatus(s.status);
     setSessionInfo(s.sessionInfo);
     setPendingPermission(s.pendingPermission);
 
-    const unsub = acpStore.subscribeToSession(sessionId, () => {
-      const s2 = acpStore.getSession(sessionId);
+    const unsub = acpStore.subscribeToSession(activeSessionId, () => {
+      const s2 = acpStore.getSession(activeSessionId);
+      console.log(`[ChatPane] notify activeSessionId=${activeSessionId} status=${s2.status} notifs=${s2.notifications.length}`);
       setNotifications(s2.notifications);
       setConnectionStatus(s2.status);
       setSessionInfo(s2.sessionInfo);
       setPendingPermission(s2.pendingPermission);
     });
     return unsub;
-  }, [sessionId]);
-
-  // ChatPane assumes the session already exists. Parent (App/ChatTile) must
-  // create it before mounting or pass a sessionId that is already connected.
+  }, [activeSessionId]);
 
   // Close session on unmount (tab deleted)
   useEffect(() => {
     return () => {
-      acpStore.closeSession(sessionId);
+      if (effectiveSessionId) {
+        acpStore.closeSession(effectiveSessionId);
+      }
     };
-  }, [sessionId]);
+  }, [effectiveSessionId]);
 
   // Auto-scroll on new notifications
   useEffect(() => {
@@ -219,45 +225,60 @@ export default function ChatPane({
 
   const handleSend = useCallback(
     async (blocks: ContentBlock[]) => {
-      if (connectionStatus !== "ready") return;
+      if (!effectiveSessionId || connectionStatus !== "ready") return;
       if (blocks.length === 0) return;
       try {
-        await acpStore.prompt(sessionId, blocks);
+        await acpStore.prompt(effectiveSessionId, blocks);
       } catch (err) {
         console.error("Prompt failed:", err);
       }
     },
-    [connectionStatus, sessionId],
+    [connectionStatus, effectiveSessionId],
   );
 
   const handleCancel = useCallback(async () => {
+    if (!effectiveSessionId) return;
     try {
-      await acpStore.cancel(sessionId);
+      await acpStore.cancel(effectiveSessionId);
     } catch (err) {
       console.error("Cancel failed:", err);
     }
-  }, [sessionId]);
+  }, [effectiveSessionId]);
+
+  const handleConnect = useCallback(async () => {
+    if (!workspaceRoot) return;
+    setIsConnectingLocal(true);
+    try {
+      const sid = await acpStore.createSession(agentConfig, workspaceRoot);
+      setLocalSessionId(sid);
+    } catch (err) {
+      console.error("Connect failed:", err);
+    } finally {
+      setIsConnectingLocal(false);
+    }
+  }, [agentConfig, workspaceRoot]);
 
   const handleResolvePermission = useCallback(
     (response: any) => {
       if (pendingPermission) {
         pendingPermission.resolve(response);
-        acpStore.getSession(sessionId).pendingPermission = null;
+        acpStore.getSession(sessionId || "").pendingPermission = null;
         setPendingPermission(null);
       }
     },
-    [pendingPermission],
+    [pendingPermission, sessionId],
   );
 
   const handleRejectPermission = useCallback(() => {
     if (pendingPermission) {
       pendingPermission.reject(new Error("Cancelled"));
-      acpStore.getSession(sessionId).pendingPermission = null;
+      acpStore.getSession(sessionId || "").pendingPermission = null;
       setPendingPermission(null);
     }
   }, [pendingPermission, sessionId]);
 
-  const isReady = connectionStatus === "ready";
+  const isReady =
+    connectionStatus === "ready" || connectionStatus === "connected";
   const isStreaming =
     isReady &&
     notifications.some(
@@ -303,14 +324,17 @@ export default function ChatPane({
       <Header
         statusLabel={statusLabel}
         isReady={isReady}
-        isConnecting={connectionStatus === "connecting"}
+        isConnecting={connectionStatus === "connecting" || isConnectingLocal}
         isStreaming={isStreaming}
-        agentName={sessionInfo?.agentDisplayName || "agent"}
+        agentName={sessionInfo?.agentDisplayName || agentConfig.name || "agent"}
+        sessionId={sessionInfo?.sessionId}
+        hasSession={!!effectiveSessionId}
         onClose={onClose}
         onCancel={handleCancel}
+        onConnect={handleConnect}
       />
 
-      {workspaceRoot && connectionStatus === "disconnected" && (
+      {workspaceRoot && connectionStatus === "disconnected" && !sessionId && (
         <ConnectionBar />
       )}
 
@@ -338,22 +362,30 @@ export default function ChatPane({
             isStreaming={isStreaming}
             isLast={idx === messageGroups.length - 1}
             fetchedFiles={fetchedFiles}
-            sessionId={sessionId}
+            sessionId={effectiveSessionId}
           />
         ))}
         <div ref={messagesEndRef} />
       </div>
 
-      <MessageEditor
-        workspaceRoot={workspaceRoot}
-        disabled={!isReady}
-        placeholder={
-          isReady
-            ? `Ask ${sessionInfo?.agentDisplayName || "agent"}...`
-            : statusLabel
-        }
-        onSend={handleSend}
-      />
+      {effectiveSessionId ? (
+        <MessageEditor
+          workspaceRoot={workspaceRoot}
+          disabled={!isReady}
+          placeholder={
+            isReady
+              ? `Ask ${sessionInfo?.agentDisplayName || agentConfig.name || "agent"}...`
+              : statusLabel
+          }
+          onSend={handleSend}
+        />
+      ) : (
+        <div className="shrink-0 px-3 py-2 border-t text-center text-text-secondary text-xs"
+          style={{ borderColor: "var(--theme-border)" }}
+        >
+          No session connected. Click <strong>Connect</strong> above to start an agent.
+        </div>
+      )}
     </div>
   );
 }
@@ -368,16 +400,22 @@ function Header({
   isConnecting,
   isStreaming,
   agentName,
+  sessionId,
+  hasSession,
   onCancel,
   onClose,
+  onConnect,
 }: {
   statusLabel: string;
   isReady: boolean;
   isConnecting: boolean;
   isStreaming: boolean;
   agentName: string;
+  sessionId?: string;
+  hasSession: boolean;
   onCancel: () => void;
   onClose: () => void;
+  onConnect: () => void;
 }) {
   const statusColor = isStreaming
     ? "var(--theme-warning)"
@@ -395,22 +433,37 @@ function Header({
         borderColor: "var(--theme-border)",
       }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <span
-          className="w-2 h-2 rounded-full"
+          className="w-2 h-2 rounded-full shrink-0"
           style={{ backgroundColor: statusColor }}
         />
-        <span className="text-[13px] font-semibold">{agentName}</span>
-        <span className="text-[11px] text-text-secondary">{statusLabel}</span>
+        <span className="text-[13px] font-semibold truncate">{agentName}</span>
+        {sessionId && (
+          <span className="text-[10px] text-text-secondary font-mono truncate" title={sessionId}>
+            {sessionId.slice(0, 8)}…
+          </span>
+        )}
+        <span className="text-[11px] text-text-secondary shrink-0">{statusLabel}</span>
       </div>
-      <div className="flex items-center gap-2">
-        {isStreaming && (
+      <div className="flex items-center gap-2 shrink-0">
+        {!hasSession && (
+          <button
+            onClick={onConnect}
+            disabled={isConnecting}
+            className="text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer disabled:opacity-50"
+            style={{ backgroundColor: "var(--theme-accent)" }}
+          >
+            {isConnecting ? "Connecting…" : "Connect"}
+          </button>
+        )}
+        {hasSession && (
           <button
             onClick={onCancel}
             className="text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer"
             style={{ backgroundColor: "var(--theme-destructive)" }}
           >
-            ⏹ Stop
+            ⏹ Cancel
           </button>
         )}
         <button
@@ -510,7 +563,7 @@ function MessageGroup({
     string,
     { path: string; content: string; beforeContent?: string }
   >;
-  sessionId: string;
+  sessionId?: string;
 }) {
   const update = (group[0].data as any)?.update;
   const stype = update?.sessionUpdate || update?.type;
@@ -635,7 +688,7 @@ function ToolNotificationsBlock({
     string,
     { path: string; content: string; beforeContent?: string }
   >;
-  sessionId: string;
+  sessionId?: string;
 }) {
   const updates = group.map((g) => g.data?.update).filter(Boolean);
   const validUpdates = updates.filter((u: any) => u.toolCallId);
@@ -672,7 +725,7 @@ function ToolCallAccordion({
   tool: any;
   isLast: boolean;
   fetchedFile?: { path: string; content: string; beforeContent?: string };
-  sessionId: string;
+  sessionId?: string;
 }) {
   const [open, setOpen] = useState(true);
   const status = tool.status || "in_progress";
@@ -696,7 +749,7 @@ function ToolCallAccordion({
   }
   const commandLabel = tool.title || kind;
   const cwd =
-    tool.rawInput?.cwd || acpStore.getSession(sessionId).cwd || undefined;
+    tool.rawInput?.cwd || acpStore.getSession(sessionId || "").cwd || undefined;
 
   // Extract web fetch info
   const rawOutput = tool.rawOutput;
@@ -790,7 +843,7 @@ function ToolCallAccordion({
               commandLabel={commandLabel}
               cwd={
                 tool.rawInput?.cwd ||
-                acpStore.getSession(sessionId).cwd ||
+                acpStore.getSession(sessionId || "").cwd ||
                 undefined
               }
               exited={status === "completed" || status === "failed"}

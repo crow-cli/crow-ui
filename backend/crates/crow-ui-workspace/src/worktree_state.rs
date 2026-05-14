@@ -242,20 +242,21 @@ impl WorktreeState {
         for event in events {
             match event.kind {
                 FileEventKind::Created => {
-                    if let Ok(content) = std::fs::read_to_string(&event.path) {
-                        let mut inner = inner.write();
-                        if content.len() <= MAX_FILE_SIZE as usize {
-                            inner
-                                .content_cache
-                                .insert(event.path.clone(), content.clone());
-                        }
-                        let wt_event = WorktreeEvent::file_created(
-                            &event.path.to_string_lossy(),
-                            &content,
-                        );
-                        if let Ok(json) = serde_json::to_string(&wt_event) {
-                            let _ = inner.event_tx.send(json);
-                        }
+                    // Always send the event — directories can't be read_to_string,
+                    // but the explorer still needs to refresh.
+                    let content = std::fs::read_to_string(&event.path).unwrap_or_default();
+                    let mut inner = inner.write();
+                    if !content.is_empty() && content.len() <= MAX_FILE_SIZE as usize {
+                        inner
+                            .content_cache
+                            .insert(event.path.clone(), content.clone());
+                    }
+                    let wt_event = WorktreeEvent::file_created(
+                        &event.path.to_string_lossy(),
+                        &content,
+                    );
+                    if let Ok(json) = serde_json::to_string(&wt_event) {
+                        let _ = inner.event_tx.send(json);
                     }
                 }
                 FileEventKind::Modified | FileEventKind::Renamed => {
@@ -277,6 +278,17 @@ impl WorktreeState {
                             let wt_event = WorktreeEvent::file_changed(
                                 &event.path.to_string_lossy(),
                                 &old,
+                                &new_content,
+                            );
+                            if let Ok(json) = serde_json::to_string(&wt_event) {
+                                let _ = inner.event_tx.send(json);
+                            }
+                        } else {
+                            // File was not in cache — treat as creation (Linux often
+                            // emits Modify for brand-new files).
+                            eprintln!("[WATCHER] treating as created (not in cache) {:?}", event.path);
+                            let wt_event = WorktreeEvent::file_created(
+                                &event.path.to_string_lossy(),
                                 &new_content,
                             );
                             if let Ok(json) = serde_json::to_string(&wt_event) {
