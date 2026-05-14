@@ -433,18 +433,12 @@ function Header({
         borderColor: "var(--theme-border)",
       }}
     >
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center gap-2">
         <span
           className="w-2 h-2 rounded-full shrink-0"
           style={{ backgroundColor: statusColor }}
         />
-        <span className="text-[13px] font-semibold truncate">{agentName}</span>
-        {sessionId && (
-          <span className="text-[10px] text-text-secondary font-mono truncate" title={sessionId}>
-            {sessionId.slice(0, 8)}…
-          </span>
-        )}
-        <span className="text-[11px] text-text-secondary shrink-0">{statusLabel}</span>
+        <span className="text-[13px] font-mono">{sessionId || agentName}</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {!hasSession && (

@@ -110,7 +110,7 @@ export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewP
       scrollBeyondLastLine: false,
       scrollBeyondLastColumn: 0,
       scrollbar: { vertical: "auto", horizontal: "auto" },
-      lineNumbers: "off",
+      lineNumbers: "on",
       folding: false,
       wordWrap: "on",
       automaticLayout: true,

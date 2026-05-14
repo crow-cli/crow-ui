@@ -402,6 +402,7 @@ export function getCurrentMermaidTheme(): string {
 export function getMonacoThemeColors(): Record<string, string> {
   const bg = getThemeVar("--theme-editor-bg", "#09090b");
   const text = getThemeVar("--theme-text-primary", "#d4d4d8");
+  const muted = getThemeVar("--theme-text-secondary", "#a1a1aa");
   const lineHighlight = getThemeVar("--theme-editor-line-highlight", "#2d2350");
   const selection = getThemeVar("--theme-editor-selection", "#4c3a6e");
   const cursor = getThemeVar("--theme-editor-cursor", "#a78bfa");
@@ -415,7 +416,7 @@ export function getMonacoThemeColors(): Record<string, string> {
     "editor.lineHighlightBackground": lineHighlight,
     "editor.selectionBackground": selection + "88",
     "editorCursor.foreground": cursor,
-    "editorLineNumber.foreground": surface,
+    "editorLineNumber.foreground": muted,
     "editorLineNumber.activeForeground": text,
     "editorIndentGuide.background": lineHighlight,
     "editorIndentGuide.activeBackground": selection,

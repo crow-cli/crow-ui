@@ -805,12 +805,15 @@ async fn prompt_session_handler(
 
     drop(state);
 
-    match session.prompt(blocks).await {
-        Ok(()) => (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "prompted" }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-            "error": format!("Prompt failed: {e}")
-        }))).into_response(),
-    }
+    // Fire-and-forget: spawn the prompt so the HTTP request returns immediately.
+    // Results stream to frontends via WebSocket (session/update notifications).
+    tokio::spawn(async move {
+        if let Err(e) = session.prompt(blocks).await {
+            eprintln!("[prompt background] prompt failed for session {session_id}: {e}");
+        }
+    });
+
+    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "prompted" }))).into_response()
 }
 
 /// HTTP handler: POST /api/acp/sessions/:session_id/cancel
@@ -831,12 +834,14 @@ async fn cancel_session_handler(
 
     drop(state);
 
-    match session.cancel().await {
-        Ok(()) => (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "cancelled" }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-            "error": format!("Cancel failed: {e}")
-        }))).into_response(),
-    }
+    // Fire-and-forget: return immediately.
+    tokio::spawn(async move {
+        if let Err(e) = session.cancel().await {
+            eprintln!("[cancel background] cancel failed for session {session_id}: {e}");
+        }
+    });
+
+    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "cancelled" }))).into_response()
 }
 
 /// Serve embedded frontend assets.

@@ -20,6 +20,7 @@ export interface EditorSettings {
   tabSize: number;
   insertSpaces: boolean;
   fontFamily: string;
+  lineNumbers: "on" | "off" | "relative" | "interval";
 }
 
 export interface LanguageSettings {
@@ -71,6 +72,7 @@ const DEFAULT_SETTINGS: IdeSettings = {
     tabSize: 4,
     insertSpaces: true,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+    lineNumbers: "on",
   },
   languages: {
     markdown: {

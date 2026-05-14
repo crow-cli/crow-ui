@@ -111,7 +111,7 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
         minimap: { enabled: !readOnly },
         fontSize: readOnly ? 12 : 14,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-        lineNumbers: readOnly ? "off" : "on",
+        lineNumbers: "on",
         renderWhitespace: "selection",
         bracketPairColorization: { enabled: true },
         guides: { bracketPairs: true, indentation: true },
