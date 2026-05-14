@@ -64,8 +64,6 @@ import type {
   RenameResponse,
   RemoveRequest,
   RemoveResponse,
-  GetConfigPathRequest,
-  GetConfigPathResponse,
   AcpRelayRequest,
   AcpRelayResponse,
   AcpSendRequest,
@@ -157,8 +155,6 @@ export const settingsApi = {
   getAll: (req?: GetAllSettingsRequest): Promise<GetAllSettingsResponse> =>
     invoke("get_all_settings", req ?? {}),
 
-  getConfigPath: (req?: GetConfigPathRequest): Promise<GetConfigPathResponse> =>
-    invoke("get_config_path", req ?? {}),
 };
 
 // ─── Workspace API ─────────────────────────────────────────────────────────

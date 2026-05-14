@@ -53,7 +53,7 @@
 4. **Dirty indicator missing in tab bar**: Dirty dot shows in explorer but not in the workspace tab itself.
 5. **File opening race condition**: Sometimes requires page refresh to see file content after opening from explorer.
 6. **Electron on Linux**: Terminals don't render in UI.
-7. **Stale browser processes break ACP**: Old Chrome/Playwright instances poison WebSocket connections. Need `pkill chrome` + `lsof -i :3928` hygiene.
+7. ~~**Stale browser processes break ACP**~~: **FIXED** — ACP client moved entirely to Rust backend. No more browser Playwright/Chrome poisoning WebSocket connections.
 
 ---
 

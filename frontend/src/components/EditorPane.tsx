@@ -199,6 +199,30 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
             }),
           );
         }
+        // Wrap selected text with paired characters
+        const WRAP_PAIRS: Record<string, string> = {
+          "(": ")",
+          '"': '"',
+          "{": "}",
+          "[": "]",
+          "*": "*",
+          "~": "~",
+          "_": "_",
+          "`": "`",
+          "'": "'",
+        };
+        const close = WRAP_PAIRS[e.key];
+        if (!close) return;
+        const sel = editor.getSelection();
+        if (!sel || sel.isEmpty()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const model = editor.getModel()!;
+        const selected = model.getValueInRange(sel);
+        editor.executeEdits("surround", [{
+          range: sel,
+          text: e.key + selected + close,
+        }]);
       };
       container?.addEventListener("keydown", handleEditorKeydown, true);
 

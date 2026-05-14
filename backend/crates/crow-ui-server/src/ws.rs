@@ -602,11 +602,6 @@ async fn handle_message(text: &str, app: &App) -> Value {
             Err(e) => Err(e.to_string()),
         },
 
-        // Config methods
-        "get_config_path" => serde_json::from_value::<crate::protocol::GetConfigPathRequest>(request.params)
-            .map_err(|e| e.to_string())
-            .and_then(|req| handlers::handle_get_config_path(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
-
         // Session state methods (SQLite-backed)
         "get_recent_workspaces" => serde_json::from_value::<crate::protocol::GetRecentWorkspacesRequest>(request.params)
             .map_err(|e| e.to_string())

@@ -26,8 +26,6 @@ export type { ExistsRequest } from "./ExistsRequest";
 export type { ExistsResponse } from "./ExistsResponse";
 export type { GetAllSettingsRequest } from "./GetAllSettingsRequest";
 export type { GetAllSettingsResponse } from "./GetAllSettingsResponse";
-export type { GetConfigPathRequest } from "./GetConfigPathRequest";
-export type { GetConfigPathResponse } from "./GetConfigPathResponse";
 export type { GetCurrentWorkspaceRequest } from "./GetCurrentWorkspaceRequest";
 export type { GetCurrentWorkspaceResponse } from "./GetCurrentWorkspaceResponse";
 export type { GetRecentWorkspacesRequest } from "./GetRecentWorkspacesRequest";

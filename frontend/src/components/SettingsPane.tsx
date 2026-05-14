@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import * as monaco from "monaco-editor";
 import * as settings from "../lib/settings";
 import { ws } from "../lib/ws-client";
-import { fsApi, settingsApi } from "../lib/rpc";
+import { fsApi } from "../lib/rpc";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 
@@ -48,24 +48,13 @@ export default function SettingsPane() {
   const loadSettingsFile = useCallback(async () => {
     setLoading(true);
 
-    // Resolve config path ourselves (don't depend on module state)
-    let path = settings.getConfigPath();
-    if (!path) {
-      try {
-        const pathResult = await settingsApi.getConfigPath();
-        path = pathResult.path;
-      } catch {
-        setLoading(false);
-        setJsonText(getDefaultJson());
-        setConfigPath("unknown");
-        return;
-      }
-    }
-    setConfigPath(path);
+    // Settings are backend-managed; show editable JSON defaults
+    const settingsPath = "~/.crow/crow-ui-settings.json";
+    setConfigPath(settingsPath);
 
     try {
       const result = await fsApi.readFile({
-        path,
+        path: settingsPath,
       });
       if (result.content && result.content.trim()) {
         setJsonText(result.content);

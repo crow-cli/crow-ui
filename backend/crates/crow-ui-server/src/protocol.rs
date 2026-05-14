@@ -232,20 +232,6 @@ pub struct SaveWorkspaceLayoutResponse {
     pub success: bool,
 }
 
-// ─── Config Path ───────────────────────────────────────────────────────────
-
-#[derive(Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct GetConfigPathRequest {}
-
-#[derive(Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct GetConfigPathResponse {
-    pub path: String,
-}
-
 // ─── Filesystem Mutations ──────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, TS)]

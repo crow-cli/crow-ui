@@ -438,12 +438,38 @@ export default function MessageEditor({
         }
         return true;
       },
-      handleKeyDown: (_view, event) => {
+      handleKeyDown: (view, event) => {
         if (event.key === "Enter" && !event.shiftKey && !suggestionOpenRef.current) {
           event.preventDefault();
           handleSendClick();
           return true;
         }
+
+        // Wrap selected text with paired characters
+        const WRAP_PAIRS: Record<string, string> = {
+          "(": ")",
+          '"': '"',
+          "{": "}",
+          "[": "]",
+          "*": "*",
+          "~": "~",
+          "_": "_",
+          "`": "`",
+          "'": "'",
+        };
+        const close = WRAP_PAIRS[event.key];
+        if (close) {
+          const { from, to, empty } = view.state.selection;
+          if (!empty && from !== to) {
+            const selected = view.state.doc.textBetween(from, to);
+            event.preventDefault();
+            const tr = view.state.tr;
+            tr.replaceWith(from, to, view.state.schema.text(event.key + selected + close));
+            view.dispatch(tr);
+            return true;
+          }
+        }
+
         return false;
       },
     },

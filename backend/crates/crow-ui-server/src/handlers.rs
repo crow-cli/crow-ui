@@ -673,17 +673,6 @@ pub async fn handle_get_file_change(state: &AppState, req: GetFileChangeRequest)
     }
 }
 
-/// Get the platform-specific global config path for Murder IDE.
-/// Returns `~/.crow/murder.json` expanded to an absolute path.
-pub fn handle_get_config_path(_state: &AppState, _req: GetConfigPathRequest) -> Result<GetConfigPathResponse, String> {
-    let home = dirs::home_dir().ok_or("could not determine home directory")?;
-    let config_dir = home.join(".crow");
-    let config_file = config_dir.join("murder.json");
-    // Ensure the config directory exists
-    std::fs::create_dir_all(&config_dir).map_err(|e| format!("failed to create config dir: {e}"))?;
-    Ok(GetConfigPathResponse { path: config_file.to_string_lossy().to_string() })
-}
-
 // ---------------------------------------------------------------------------
 // Session state handlers (backed by SQLite, not JSON config)
 // ---------------------------------------------------------------------------
@@ -824,9 +813,7 @@ pub fn handle_update_setting(state: &AppState, req: UpdateSettingRequest) -> Res
     s.set(&req.key, req.value.clone());
 
     // Persist to disk
-    let settings_path = dirs::home_dir()
-        .map(|h| h.join(".crow").join("crow-ui-settings.json"))
-        .unwrap_or_else(|| std::path::Path::new("crow-ui-settings.json").to_path_buf());
+    let settings_path = state.config_dir.join("crow-ui-settings.json");
     s.save_user(&settings_path).map_err(|e| format!("failed to save settings: {e}"))?;
 
     // Broadcast change to all connected clients

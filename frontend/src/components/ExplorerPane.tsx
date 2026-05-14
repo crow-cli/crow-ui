@@ -261,8 +261,10 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
         return next;
       });
       loadChildren(parentPath);
-      setChildCache(new Map());
-      loadDir(root);
+      // Open newly created files in the editor
+      if (!isDir) {
+        onFileClick(newPath, false);
+      }
     } catch (e: any) {
       alert(
         `Failed to create ${isDir ? "directory" : "file"}: ${e.message || e}`,
@@ -296,8 +298,13 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
     }
     try {
       await fsApi.rename({ from: editingPath, to: newPath });
-      setChildCache(new Map());
-      loadDir(root);
+      const parent = editingPath.replace(/\/[^/]+$/, "");
+      setChildCache((prev) => {
+        const next = new Map(prev);
+        next.delete(parent);
+        return next;
+      });
+      loadChildren(parent);
     } catch (e: any) {
       alert(`Failed to rename: ${e.message || e}`);
     } finally {
@@ -332,8 +339,13 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
           return next;
         });
       }
-      setChildCache(new Map());
-      loadDir(root);
+      const parent = path.replace(/\/[^/]+$/, "");
+      setChildCache((prev) => {
+        const next = new Map(prev);
+        next.delete(parent);
+        return next;
+      });
+      loadChildren(parent);
     } catch (e: any) {
       alert(`Failed to delete: ${e.message || e}`);
     }

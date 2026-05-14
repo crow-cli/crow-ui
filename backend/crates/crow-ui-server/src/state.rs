@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crow_ui_settings::Settings;
 use crow_ui_acp::AgentManager;
@@ -105,6 +105,8 @@ pub struct AppState {
     pub acp_pending: DashMap<String, oneshot::Sender<Value>>,
     /// Broadcast channel for backend ACP session events → all connected frontends.
     pub acp_session_events_tx: broadcast::Sender<crate::acp_session::SessionEvent>,
+    /// Config directory (e.g. ~/.crow or --config-dir override).
+    pub config_dir: PathBuf,
 }
 
 impl AppState {
@@ -148,6 +150,7 @@ impl AppState {
             acp_cmd_tx,
             acp_pending: DashMap::new(),
             acp_session_events_tx,
+            config_dir: config_dir.to_path_buf(),
         }
     }
 
@@ -183,6 +186,7 @@ impl AppState {
             acp_cmd_tx,
             acp_pending: DashMap::new(),
             acp_session_events_tx,
+            config_dir: config_dir.to_path_buf(),
         }
     }
 
