@@ -61,10 +61,3 @@ curl -X POST http://localhost:3928/api/acp/sessions/<session_id>/prompt \
 
 ## Cancel
 curl -X POST http://localhost:3928/api/acp/sessions/<session_id>/cancel
-
-
-> [!NOTE]
-> if `curl -X POST http://localhost:3928/api/acp/sessions` is not returning the session_id, check for instances of chrome running in background and `lsof -i :3928` to see which processes are listening for it
-
-
-This file isn't in read only mode

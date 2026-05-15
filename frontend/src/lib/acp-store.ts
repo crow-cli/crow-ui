@@ -6,6 +6,7 @@
  */
 
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import { ws } from "../lib/ws-client";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -337,4 +338,22 @@ export async function cancel(sessionId: string) {
     const err = await response.json().catch(() => ({ error: "Unknown error" }));
     throw new Error(err.error || `HTTP ${response.status}`);
   }
+}
+
+export async function setSessionConfigOption(
+  sessionId: string,
+  configId: string,
+  value: string,
+): Promise<SessionConfigOption[]> {
+  const result = await ws.invoke<{ configOptions: SessionConfigOption[] }>(
+    "set_session_config_option",
+    { sessionId, configId, value },
+  );
+  // Update local state with the new config options
+  const state = sessions.get(sessionId);
+  if (state && state.sessionInfo) {
+    state.sessionInfo.configOptions = result.configOptions;
+    notifySession(sessionId);
+  }
+  return result.configOptions;
 }

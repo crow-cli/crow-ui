@@ -23,14 +23,24 @@ import type { ContentBlock } from "@agentclientprotocol/sdk";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
+interface SessionConfigOption {
+  id: string;
+  name: string;
+  category?: string;
+  currentValue?: string;
+  options?: Array<{ name: string; description?: string; value: string }>;
+}
+
 interface MessageEditorProps {
   workspaceRoot: string | null;
   disabled: boolean;
   isStreaming?: boolean;
   placeholder: string;
   queuedCount?: number;
+  configOptions?: SessionConfigOption[];
   onSend: (blocks: ContentBlock[]) => void;
   onCancel?: () => void;
+  onModelChange?: (modelValue: string) => void;
 }
 
 interface MentionItem {
@@ -268,10 +278,15 @@ function extractContentBlocks(doc: unknown): ContentBlock[] {
   };
 
   const topLevel = (root.content as JSONNode[] | undefined) ?? [];
-  for (const node of topLevel) {
+  for (let i = 0; i < topLevel.length; i++) {
+    const node = topLevel[i];
     if (node.type === "paragraph") {
       for (const inline of (node.content as JSONNode[] | undefined) ?? []) {
         processNode(inline);
+      }
+      // Add paragraph break between paragraphs (but not after last)
+      if (i < topLevel.length - 1) {
+        currentText += "\n\n";
       }
     } else {
       processNode(node);
@@ -308,12 +323,26 @@ export default function MessageEditor({
   isStreaming,
   placeholder,
   queuedCount = 0,
+  configOptions,
   onSend,
   onCancel,
+  onModelChange,
 }: MessageEditorProps) {
   const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const suggestionOpenRef = useRef(false);
+
+  // Model config: find the option with category === "model"
+  const modelConfig = configOptions?.find((c) => c.category === "model" || c.id === "model");
+  const modelOptions = modelConfig?.options || [];
+  const [selectedModel, setSelectedModel] = useState(modelConfig?.currentValue || "");
+
+  // Sync selectedModel when configOptions change (new session)
+  useEffect(() => {
+    if (modelConfig?.currentValue) {
+      setSelectedModel(modelConfig.currentValue);
+    }
+  }, [modelConfig?.currentValue]);
 
   // Build mention items from workspace files
   useEffect(() => {
@@ -592,56 +621,93 @@ export default function MessageEditor({
       <div className="flex gap-2 items-end">
         <div
           ref={editorRef}
-          className={`flex-1 relative px-2.5 py-1.5 rounded-md text-text-primary text-[13px] outline-none min-h-[36px] max-h-[200px] overflow-y-auto backdrop-blur-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+          className={`flex-1 relative rounded-md text-text-primary text-[13px] outline-none min-h-[80px] max-h-[240px] overflow-y-auto backdrop-blur-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
           style={{
             backgroundColor: "var(--theme-elevated-40)",
             border: "1px solid var(--theme-border)",
           }}
           onClick={() => !disabled && editor.chain().focus().run()}
         >
-          <EditorContent editor={editor} />
-          {/* Inline send/cancel button */}
-          <button
-            onClick={isStreaming ? onCancel : handleSendClick}
-            disabled={disabled && !isStreaming}
-            className="absolute right-1.5 bottom-1.5 w-7 h-7 flex items-center justify-center rounded-md text-[13px] border-none transition-all"
-            style={
-              isStreaming
-                ? {
-                    backgroundColor: "var(--theme-destructive)",
-                    color: "var(--theme-text-inverse)",
-                    cursor: "pointer",
-                  }
-                : !disabled
+          <div className="px-2.5 py-1.5 pb-7">
+            <EditorContent editor={editor} />
+          </div>
+
+          {/* Bottom bar: model selector (left) + send/cancel (right) */}
+          <div className="absolute bottom-1 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
+            {/* Model selector */}
+            {modelOptions.length > 0 && (
+              <div className="pointer-events-auto">
+                <select
+                  value={selectedModel}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedModel(val);
+                    onModelChange?.(val);
+                  }}
+                  disabled={disabled}
+                  className="text-[11px] px-1.5 py-0.5 rounded border cursor-pointer appearance-none pr-4"
+                  style={{
+                    borderColor: "var(--theme-border)",
+                    color: "var(--theme-text-secondary)",
+                    backgroundColor: "var(--theme-surface-30)",
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23999' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "right 4px center",
+                  }}
+                  title="Model"
+                >
+                  {modelOptions.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Send / Cancel button */}
+            <button
+              onClick={isStreaming ? onCancel : handleSendClick}
+              disabled={disabled && !isStreaming}
+              className="pointer-events-auto w-7 h-7 flex items-center justify-center rounded-md text-[13px] border-none transition-all"
+              style={
+                isStreaming
                   ? {
-                      backgroundColor: "var(--theme-accent-80)",
+                      backgroundColor: "var(--theme-destructive)",
                       color: "var(--theme-text-inverse)",
                       cursor: "pointer",
                     }
-                  : {
-                      backgroundColor: "var(--theme-surface-50)",
-                      color: "var(--theme-text-secondary)",
-                      cursor: "default",
-                    }
-            }
-            onMouseEnter={(e) => {
-              if (isStreaming) {
-                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive-80)";
-              } else if (!disabled) {
-                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent)";
+                  : !disabled
+                    ? {
+                        backgroundColor: "var(--theme-accent-80)",
+                        color: "var(--theme-text-inverse)",
+                        cursor: "pointer",
+                      }
+                    : {
+                        backgroundColor: "var(--theme-surface-50)",
+                        color: "var(--theme-text-secondary)",
+                        cursor: "default",
+                      }
               }
-            }}
-            onMouseLeave={(e) => {
-              if (isStreaming) {
-                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive)";
-              } else if (!disabled) {
-                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-80)";
-              }
-            }}
-            title={isStreaming ? "Cancel" : "Send"}
-          >
-            {isStreaming ? "⏹" : "➤"}
-          </button>
+              onMouseEnter={(e) => {
+                if (isStreaming) {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive-80)";
+                } else if (!disabled) {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (isStreaming) {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive)";
+                } else if (!disabled) {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-80)";
+                }
+              }}
+              title={isStreaming ? "Cancel" : "Send"}
+            >
+              {isStreaming ? "⏹" : "➤"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -620,6 +620,26 @@ pub async fn handle_acp_wait_for_terminal_exit(state: &AppState, req: AcpWaitFor
     }
 }
 
+pub async fn handle_set_session_config_option(
+    state: &AppState,
+    req: SetSessionConfigOptionRequest,
+) -> Result<SetSessionConfigOptionResponse, String> {
+    let session = state
+        .acp_sessions
+        .get_session(&req.session_id)
+        .await
+        .ok_or_else(|| format!("Session not found: {}", req.session_id))?;
+
+    let result = session
+        .set_config_option(&req.config_id, &req.value)
+        .await
+        .map_err(|e| format!("Failed to set config option: {e}"))?;
+
+    Ok(SetSessionConfigOptionResponse {
+        config_options: result,
+    })
+}
+
 pub async fn handle_acp_kill_terminal(state: &AppState, req: AcpKillTerminalRequest) -> Result<AcpKillTerminalResponse, String> {
     state.agents.terminals.kill_terminal(&req.terminal_id).await;
     Ok(AcpKillTerminalResponse { success: true })

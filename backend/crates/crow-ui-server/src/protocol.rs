@@ -293,6 +293,24 @@ pub struct RemoveResponse {
     pub success: bool,
 }
 
+// ─── ACP Session Config Options ────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SetSessionConfigOptionRequest {
+    pub session_id: String,
+    pub config_id: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SetSessionConfigOptionResponse {
+    pub config_options: serde_json::Value,
+}
+
 // ─── ACP Control ───────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, TS)]

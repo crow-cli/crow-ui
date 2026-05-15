@@ -62,11 +62,13 @@ export default function ChatPane({
   const [localSessionId, setLocalSessionId] = useState<string | undefined>(undefined);
   const [queuedBlocks, setQueuedBlocks] = useState<ContentBlock[][]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [promptPending, setPromptPending] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevNotifLen = useRef(0);
   const prevStreamingRef = useRef(false);
   const streamingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveSessionId = sessionId || localSessionId;
   const activeSessionId = effectiveSessionId || "disconnected";
@@ -271,9 +273,8 @@ export default function ChatPane({
   const isReady =
     connectionStatus === "ready" || connectionStatus === "connected";
 
-  // Streaming detection: ACP doesn't send an explicit "done" notification.
-  // We consider ourselves streaming when the last notification is a chunk,
-  // and we clear the streaming flag 2s after the last chunk arrives.
+  // Streaming detection: track when agent is actively generating.
+  // prompt_complete from backend gives us the definitive end signal.
   useEffect(() => {
     if (!isReady) {
       setIsStreaming(false);
@@ -283,6 +284,23 @@ export default function ChatPane({
     const lastUpdate = lastNotif?.type === "session_notification"
       ? (lastNotif.data as any)?.update
       : null;
+
+    // Definitive completion signal from backend
+    if (lastUpdate?.sessionUpdate === "prompt_complete") {
+      setIsStreaming(false);
+      setPromptPending(false);
+      if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
+      // Auto-send next queued message
+      if (queuedBlocks.length > 0 && effectiveSessionId) {
+        const next = queuedBlocks[0];
+        setQueuedBlocks((prev) => prev.slice(1));
+        acpStore.prompt(effectiveSessionId, next).catch((err) => {
+          console.error("Queued prompt failed:", err);
+        });
+      }
+      return;
+    }
+
     const lastIsChunk =
       lastUpdate?.sessionUpdate === "agent_message_chunk" ||
       lastUpdate?.sessionUpdate === "agent_thought_chunk" ||
@@ -290,12 +308,6 @@ export default function ChatPane({
 
     if (lastIsChunk) {
       setIsStreaming(true);
-      if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
-      streamingTimerRef.current = setTimeout(() => {
-        setIsStreaming(false);
-      }, 2000);
-    } else {
-      setIsStreaming(false);
       if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
     }
 
@@ -309,34 +321,24 @@ export default function ChatPane({
       if (!effectiveSessionId || connectionStatus !== "ready") return;
       if (blocks.length === 0) return;
 
-      // If streaming, queue the message instead of sending immediately
-      if (isStreaming) {
+      // If a prompt is already in flight, queue this message
+      if (promptPending || isStreaming) {
         setQueuedBlocks((prev) => [...prev, blocks]);
         return;
       }
 
+      setPromptPending(true);
       try {
         await acpStore.prompt(effectiveSessionId, blocks);
       } catch (err) {
         console.error("Prompt failed:", err);
+        setPromptPending(false);
       }
     },
-    [connectionStatus, effectiveSessionId, isStreaming],
+    [connectionStatus, effectiveSessionId, isStreaming, promptPending],
   );
 
-  // Auto-send queued messages when streaming ends
-  useEffect(() => {
-    if (prevStreamingRef.current && !isStreaming && queuedBlocks.length > 0) {
-      const next = queuedBlocks[0];
-      setQueuedBlocks((prev) => prev.slice(1));
-      if (effectiveSessionId) {
-        acpStore.prompt(effectiveSessionId, next).catch((err) => {
-          console.error("Queued prompt failed:", err);
-        });
-      }
-    }
-    prevStreamingRef.current = isStreaming;
-  }, [isStreaming, queuedBlocks, effectiveSessionId]);
+
 
   const statusLabel = !workspaceRoot
     ? "Waiting for workspace..."
@@ -380,7 +382,6 @@ export default function ChatPane({
         agentName={sessionInfo?.agentDisplayName || agentConfig.name || "agent"}
         sessionId={sessionInfo?.sessionId}
         hasSession={!!effectiveSessionId}
-        configOptions={sessionInfo?.configOptions}
         onClose={onClose}
         onConnect={handleConnect}
       />
@@ -423,15 +424,26 @@ export default function ChatPane({
         <MessageEditor
           workspaceRoot={workspaceRoot}
           disabled={!isReady}
-          isStreaming={isStreaming}
+          isStreaming={isStreaming || promptPending}
           placeholder={
             isReady
               ? `Ask ${sessionInfo?.agentDisplayName || agentConfig.name || "agent"}...`
               : statusLabel
           }
           queuedCount={queuedBlocks.length}
+          configOptions={sessionInfo?.configOptions}
           onSend={handleSend}
           onCancel={handleCancel}
+          onModelChange={(val) => {
+            if (!effectiveSessionId) return;
+            const modelConfig = sessionInfo?.configOptions?.find(
+              (c) => c.category === "model" || c.id === "model",
+            );
+            if (!modelConfig) return;
+            acpStore
+              .setSessionConfigOption(effectiveSessionId, modelConfig.id, val)
+              .catch((err) => console.error("Failed to change model:", err));
+          }}
         />
       ) : (
         <div className="shrink-0 px-3 py-2 border-t text-center text-text-secondary text-xs"
@@ -456,7 +468,6 @@ function Header({
   agentName,
   sessionId,
   hasSession,
-  configOptions,
   onClose,
   onConnect,
 }: {
@@ -467,13 +478,6 @@ function Header({
   agentName: string;
   sessionId?: string;
   hasSession: boolean;
-  configOptions?: Array<{
-    id: string;
-    name: string;
-    category?: string;
-    currentValue?: string;
-    options?: Array<{ name: string; description?: string; value: string }>;
-  }>;
   onClose: () => void;
   onConnect: () => void;
 }) {
@@ -484,24 +488,6 @@ function Header({
       : isConnecting
         ? "var(--theme-warning)"
         : "var(--theme-destructive)";
-
-  // Find model config option (category === "model")
-  const modelConfig = configOptions?.find((c) => c.category === "model" || c.id === "model");
-  const modelOptions = modelConfig?.options || [];
-  const currentModelValue = modelConfig?.currentValue;
-  const [modelOpen, setModelOpen] = useState(false);
-  const modelRef = useRef<HTMLDivElement>(null);
-
-  // Close model dropdown on outside click
-  useEffect(() => {
-    function onClick(e: MouseEvent) {
-      if (modelRef.current && !modelRef.current.contains(e.target as Node)) {
-        setModelOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
 
   return (
     <div
@@ -517,50 +503,6 @@ function Header({
           style={{ backgroundColor: statusColor }}
         />
         <span className="text-[13px] font-mono truncate">{sessionId || agentName}</span>
-        {modelOptions.length > 0 && (
-          <div className="relative shrink-0" ref={modelRef}>
-            <button
-              onClick={() => setModelOpen((o) => !o)}
-              className="text-[11px] px-1.5 py-0.5 rounded border cursor-pointer flex items-center gap-1"
-              style={{
-                borderColor: "var(--theme-border)",
-                color: "var(--theme-text-secondary)",
-                backgroundColor: "var(--theme-surface-30)",
-              }}
-            >
-              <span>🧠</span>
-              <span className="truncate max-w-[120px]">
-                {modelOptions.find((m) => m.value === currentModelValue)?.name || modelConfig?.name || "Model"}
-              </span>
-              <span className="text-[8px]">{modelOpen ? "▾" : "▸"}</span>
-            </button>
-            {modelOpen && (
-              <div
-                className="absolute top-full left-0 mt-1 rounded border shadow-lg z-50 min-w-[160px]"
-                style={{
-                  backgroundColor: "var(--theme-surface-elevated)",
-                  borderColor: "var(--theme-border)",
-                }}
-              >
-                {modelOptions.map((m) => (
-                  <button
-                    key={m.value}
-                    onClick={() => setModelOpen(false)}
-                    className="w-full text-left px-2.5 py-1.5 text-[11px] cursor-pointer hover:opacity-80 flex items-center gap-1.5"
-                    style={{
-                      color: m.value === currentModelValue
-                        ? "var(--theme-accent)"
-                        : "var(--theme-text-primary)",
-                    }}
-                  >
-                    {m.value === currentModelValue && <span>✓</span>}
-                    <span>{m.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {!hasSession && (

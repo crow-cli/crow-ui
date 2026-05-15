@@ -253,21 +253,41 @@ impl AcpSession {
         Ok(())
     }
 
-    /// Send a prompt to the session.
-    pub async fn prompt(&self, blocks: Vec<acp::ContentBlock>) -> Result<()> {
-        let req = acp::PromptRequest::new(
-            acp::SessionId::new(self.session_id.clone()),
-            blocks,
-        );
-        self.request::<_, acp::PromptResponse>("session/prompt", req)
-            .await?;
-        Ok(())
-    }
-
     /// Cancel the current prompt turn.
     pub async fn cancel(&self) -> Result<()> {
         let notif = acp::CancelNotification::new(acp::SessionId::new(self.session_id.clone()));
         self.notify("session/cancel", notif).await
+    }
+
+    /// Set a session config option (e.g. model).
+    /// Returns the configOptions array (extracted from the agent's response wrapper).
+    pub async fn set_config_option(&self, config_id: &str, value: &str) -> Result<Value> {
+        #[derive(Debug, Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Params {
+            session_id: String,
+            config_id: String,
+            value: String,
+        }
+        let params = Params {
+            session_id: self.session_id.clone(),
+            config_id: config_id.to_string(),
+            value: value.to_string(),
+        };
+        let result = self.request::<_, Value>("session/set_config_option", params).await?;
+        let config_options = result.get("configOptions")
+            .ok_or_else(|| anyhow::anyhow!("agent response missing configOptions"))?
+            .clone();
+        Ok(config_options)
+    }
+
+    /// Send a prompt. Returns the full PromptResponse (including stopReason).
+    pub async fn prompt(&self, blocks: Vec<acp::ContentBlock>) -> Result<acp::PromptResponse> {
+        let req = acp::PromptRequest::new(
+            acp::SessionId::new(self.session_id.clone()),
+            blocks,
+        );
+        self.request::<_, acp::PromptResponse>("session/prompt", req).await
     }
 
     /// Subscribe to session events (updates, disconnects).

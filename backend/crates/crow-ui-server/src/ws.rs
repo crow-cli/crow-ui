@@ -651,6 +651,12 @@ async fn handle_message(text: &str, app: &App) -> Value {
             .map_err(|e| e.to_string())
             .and_then(|req| handlers::handle_update_setting(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
+        // ACP session config
+        "set_session_config_option" => match serde_json::from_value::<crate::protocol::SetSessionConfigOptionRequest>(request.params) {
+            Ok(req) => handlers::handle_set_session_config_option(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+
         // ACP methods
         "acp_relay" => match serde_json::from_value::<crate::protocol::AcpRelayRequest>(request.params) {
             Ok(req) => handlers::handle_acp_relay(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
@@ -772,7 +778,8 @@ async fn create_session_handler(
 }
 
 /// HTTP handler: POST /api/acp/sessions/:session_id/prompt
-/// Sends prompt to backend-owned ACP session.
+/// Sends prompt to backend-owned ACP session. Fire-and-forget: returns 202 immediately.
+/// Prompt completion (end_turn / error) is broadcast to frontends via acp-session-event.
 async fn prompt_session_handler(
     Path(session_id): Path<String>,
     State(app): State<App>,
@@ -800,13 +807,35 @@ async fn prompt_session_handler(
         None => vec![],
     };
 
+    let forward_tx = state.acp_session_events_tx.clone();
     drop(state);
 
-    // Fire-and-forget: spawn the prompt so the HTTP request returns immediately.
-    // Results stream to frontends via WebSocket (session/update notifications).
     tokio::spawn(async move {
-        if let Err(e) = session.prompt(blocks).await {
-            eprintln!("[prompt background] prompt failed for session {session_id}: {e}");
+        match session.prompt(blocks).await {
+            Ok(resp) => {
+                let stop_reason = serde_json::to_string(&resp.stop_reason)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string();
+                let _ = forward_tx.send(SessionEvent::Update {
+                    session_id: session_id.clone(),
+                    update: serde_json::json!({
+                        "sessionUpdate": "prompt_complete",
+                        "stopReason": stop_reason,
+                    }),
+                });
+            }
+            Err(e) => {
+                eprintln!("[prompt background] prompt failed for session {session_id}: {e}");
+                let _ = forward_tx.send(SessionEvent::Update {
+                    session_id: session_id.clone(),
+                    update: serde_json::json!({
+                        "sessionUpdate": "prompt_complete",
+                        "stopReason": "error",
+                        "error": e.to_string(),
+                    }),
+                });
+            }
         }
     });
 
