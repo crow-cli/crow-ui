@@ -1,8 +1,38 @@
 import { app, BrowserWindow, dialog, Menu } from "electron";
-import { spawn, ChildProcess } from "child_process";
+import { spawn, ChildProcess, execSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import * as net from "net";
+
+/** Capture the user's shell environment (fnm, nvm, uv, etc.) by spawning a login shell.
+ *  Merges it into the current process.env so all child processes inherit it.
+ */
+function loadShellEnv(): void {
+  if (process.platform === "win32") return;
+  try {
+    const shell = process.env.SHELL || "/bin/bash";
+    // Use -i to make bash interactive (so it loads .bashrc) AND -l (login shell).
+    // The "no job control" / ioctl errors go to stderr — suppress them.
+    const envOutput = execSync(
+      `${shell} -i -l -c 'env -0' 2>/dev/null`,
+      { encoding: "utf-8", timeout: 5000 }
+    );
+    const vars = envOutput.split("\0");
+    for (const v of vars) {
+      const eq = v.indexOf("=");
+      if (eq > 0) {
+        const key = v.slice(0, eq);
+        const val = v.slice(eq + 1);
+        // Shell PATH always wins — it has fnm/nvm/uv entries
+        if (key === "PATH" || !process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  } catch {
+    // Fallback: ignore errors, use existing env
+  }
+}
 
 let mainWindow: BrowserWindow | null = null;
 let backend: ChildProcess | null = null;
@@ -148,6 +178,7 @@ async function startBackend() {
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null); // Hide default menu bar
+  loadShellEnv(); // Capture fnm/nvm/uv etc. before spawning backend
   try {
     await startBackend();
     createWindow();
