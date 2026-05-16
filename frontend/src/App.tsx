@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from "react";
 import {
   Layout,
   Model,
@@ -21,6 +21,8 @@ import {
   Activity,
   SquareSplitVertical,
   X,
+  Menu,
+  Search,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -38,9 +40,11 @@ import TerminalPane from "./components/TerminalPane";
 import ChatPane from "./components/ChatPane";
 import RpcLogPanel from "./components/RpcLogPanel";
 import SettingsPane from "./components/SettingsPane";
+import CommandPalette, { type Command } from "./components/CommandPalette";
+import SearchPane from "./components/SearchPane";
 import { FolderPicker } from "./components/FolderPicker";
 import BottomBar, { type ActivityId } from "./components/BottomBar";
-import { MenuBar, type MenuGroup } from "./components/MenuBar";
+// MenuBar replaced by CommandPalette
 import * as settings from "./lib/settings";
 import { ws } from "./lib/ws-client";
 import { documentApi, workspaceApi, acpApi } from "./lib/rpc";
@@ -65,6 +69,8 @@ interface OpenFile {
 function getTabIcon(name: string): ReactNode {
   if (name === "Explorer")
     return <FolderOpen className="w-3.5 h-3.5 text-violet-500" />;
+  if (name === "Search")
+    return <Search className="w-3.5 h-3.5 text-violet-500" />;
   if (name === "Agent Chat" || name.startsWith("Chat"))
     return <Sparkles className="w-3.5 h-3.5 text-violet-500" />;
   if (name === "Terminal" || name.startsWith("Terminal"))
@@ -117,7 +123,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [activeActivity, setActiveActivity] = useState<ActivityId>("explorer");
   const [explorerVisible, setExplorerVisible] = useState(true);
-  const [_menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorCol, setCursorCol] = useState(1);
   const [wordWrap, setWordWrap] = useState(
@@ -390,6 +396,12 @@ export default function App() {
               id: "explorer-tab",
               name: "Explorer",
               component: "explorer",
+            },
+            {
+              type: "tab",
+              id: "search-tab",
+              name: "Search",
+              component: "search",
             },
           ],
         },
@@ -738,8 +750,14 @@ export default function App() {
         setActiveActivity("rpc");
         return;
       }
+      if ((ctrl || e.metaKey) && e.shiftKey && e.key === "P") {
+        e.preventDefault();
+        e.stopPropagation();
+        setCommandPaletteOpen((v) => !v);
+        return;
+      }
       if (e.key === "Escape") {
-        setMenuOpen(null);
+        setCommandPaletteOpen(false);
         setShowFolderPicker(false);
       }
     };
@@ -927,9 +945,23 @@ export default function App() {
           setActiveActivity("explorer");
           toggleExplorer();
           break;
-        case "search":
+        case "search": {
           setActiveActivity("search");
+          const model = layoutModelRef.current;
+          if (model) {
+            const border = model.getBorderSet().getBorderMap().get(DockLocation.RIGHT);
+            if (border) {
+              // Show border if hidden
+              if (!(border.getAttr("show") as boolean)) {
+                model.doAction(Actions.updateNodeAttributes(border.getId(), { show: true } as any));
+                setExplorerVisible(true);
+              }
+              // Select search tab
+              model.doAction(Actions.selectTab("search-tab"));
+            }
+          }
           break;
+        }
         case "source_control":
           setActiveActivity("git");
           break;
@@ -1002,127 +1034,36 @@ export default function App() {
 
   const currentFile = activeFile ? openFiles.get(activeFile) : null;
 
-  const menuItems: MenuGroup[] = [
-    {
-      label: "File",
-      items: [
-        { label: "Open Directory…", action: "open_folder", shortcut: "Ctrl+O" },
-        { separator: true },
-        {
-          label: "Save",
-          action: "save",
-          shortcut: "Ctrl+S",
-          enabled: activeFile !== null,
-        },
-        {
-          label: "Save All",
-          action: "save_all",
-          shortcut: "Ctrl+Shift+S",
-          enabled: dirtyFiles.size > 0,
-        },
-        { separator: true },
-        {
-          label: "Close Editor",
-          action: "close_editor",
-          shortcut: "Ctrl+W",
-          enabled: activeFile !== null,
-        },
-      ],
-    },
-    {
-      label: "Edit",
-      items: [
-        { label: "Undo", action: "undo", shortcut: "Ctrl+Z" },
-        { label: "Redo", action: "redo", shortcut: "Ctrl+Shift+Z" },
-        { separator: true },
-        { label: "Cut", action: "cut", shortcut: "Ctrl+X" },
-        { label: "Copy", action: "copy", shortcut: "Ctrl+C" },
-        { label: "Paste", action: "paste", shortcut: "Ctrl+V" },
-      ],
-    },
-    {
-      label: "View",
-      items: [
-        { label: "Agent Chat", action: "chat", shortcut: "Ctrl+L" },
-        { label: "Explorer", action: "explorer", shortcut: "Ctrl+Shift+E" },
-        { label: "Search", action: "search", shortcut: "Ctrl+Shift+F" },
-        {
-          label: "Source Control",
-          action: "source_control",
-          shortcut: "Ctrl+Shift+G",
-        },
-        { label: "Terminal", action: "terminal", shortcut: "Ctrl+`" },
-        { label: "Extensions", action: "extensions", shortcut: "Ctrl+Shift+X" },
-        { label: "ACP Log", action: "rpc_log", shortcut: "Ctrl+Shift+R" },
-        { separator: true },
-        {
-          label: "Toggle Sidebar",
-          action: "toggle_sidebar",
-          shortcut: "Ctrl+B",
-        },
-        {
-          label: "Toggle Terminal",
-          action: "toggle_terminal",
-          shortcut: "Ctrl+`",
-        },
-        { separator: true },
-        {
-          label: wordWrap ? "Disable Word Wrap" : "Enable Word Wrap",
-          action: "word_wrap",
-          shortcut: "Alt+Z",
-        },
-      ],
-    },
-    {
-      label: "Go",
-      items: [
-        { label: "Back", action: "back", shortcut: "Alt+Left" },
-        { label: "Forward", action: "forward", shortcut: "Alt+Right" },
-        { separator: true },
-        { label: "Go to File…", action: "go_to_file", shortcut: "Ctrl+P" },
-        { label: "Go to Line…", action: "go_to_line", shortcut: "Ctrl+G" },
-      ],
-    },
-    {
-      label: "Run",
-      items: [
-        { label: "Start Debugging", action: "start_debug", shortcut: "F5" },
-        {
-          label: "Run Without Debugging",
-          action: "run_no_debug",
-          shortcut: "Ctrl+F5",
-        },
-        { label: "Stop", action: "stop_debug", shortcut: "Shift+F5" },
-      ],
-    },
-    {
-      label: "Terminal",
-      items: [
-        {
-          label: "New Terminal",
-          action: "new_terminal",
-          shortcut: "Ctrl+Shift+`",
-        },
-        {
-          label: "Split Terminal",
-          action: "split_terminal",
-          shortcut: "Ctrl+Shift+5",
-        },
-      ],
-    },
-    {
-      label: "Help",
-      items: [
-        { label: "Welcome", action: "welcome" },
-        { label: "Documentation", action: "docs" },
-        {
-          label: "Keyboard Shortcuts",
-          action: "shortcuts",
-          shortcut: "Ctrl+K Ctrl+S",
-        },
-      ],
-    },
-  ];
+  // Command palette commands — all actionable items from the (now-dead) menu bar
+  const commands: Command[] = useMemo(() => {
+    const cmd = (id: string, label: string, category: string, action: string, shortcut?: string): Command => ({
+      id,
+      label,
+      category,
+      shortcut,
+      action: () => handleMenuAction(action),
+    });
+    return [
+      cmd("open-folder", "Open Directory…", "File", "open_folder", "Ctrl+O"),
+      cmd("save", "Save", "File", "save", "Ctrl+S"),
+      cmd("save-all", "Save All", "File", "save_all", "Ctrl+Shift+S"),
+      cmd("close-editor", "Close Editor", "File", "close_editor", "Ctrl+W"),
+      cmd("toggle-sidebar", "Toggle Sidebar", "View", "toggle_sidebar", "Ctrl+B"),
+      cmd("toggle-terminal", "Toggle Terminal Panel", "View", "toggle_terminal", "Ctrl+`"),
+      cmd("toggle-chat", "Toggle Chat Panel", "View", "toggle_chat", "Ctrl+L"),
+      cmd("word-wrap", "Toggle Word Wrap", "View", "word_wrap", "Alt+Z"),
+      cmd("explorer", "Show Explorer", "View", "explorer", "Ctrl+Shift+E"),
+      cmd("search", "Show Search", "View", "search", "Ctrl+Shift+F"),
+      cmd("source-control", "Show Source Control", "View", "source_control", "Ctrl+Shift+G"),
+      cmd("terminal", "New Terminal", "Terminal", "new_terminal", "Ctrl+Shift+`"),
+      cmd("extensions", "Show Extensions", "View", "extensions", "Ctrl+Shift+X"),
+      cmd("chat", "Open Agent Chat", "View", "chat", "Ctrl+L"),
+      cmd("rpc-log", "Open ACP Log", "View", "rpc_log", "Ctrl+Shift+R"),
+      cmd("settings", "Open Settings", "View", "settings"),
+    ];
+  }, [handleMenuAction]);
+
+  // menuItems removed — replaced by CommandPalette
 
   // Split tab — creates a new tabset next to the current one
   // Uses Actions.addNode with DockLocation.RIGHT/LEFT which auto-wraps in a new TabSetNode
@@ -1298,6 +1239,8 @@ export default function App() {
           </div>
         );
       }
+      case "search":
+        return <SearchPane workspaceRoot={workspaceRoot} />;
       case "rpc":
         return <RpcLogPanel />;
       case "settings":
@@ -1309,10 +1252,33 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-transparent text-text-primary text-[13px] overflow-hidden font-sans relative antialiased selection:bg-violet-500/30 selection:text-white">
-      <MenuBar
-        items={menuItems}
-        onAction={handleMenuAction}
-        onOpenChange={setMenuOpen}
+      {/* Top bar — hamburger + workspace name + command palette trigger */}
+      <div className="h-8 bg-background/80 backdrop-blur-md flex items-center px-3 gap-3 border-b border-border shrink-0 relative z-[100] select-none">
+        <button
+          onClick={() => setCommandPaletteOpen(true)}
+          className="p-1 rounded hover:bg-hover text-text-secondary hover:text-text-primary cursor-pointer border-none"
+          title="Command Palette (Ctrl+Shift+P)"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
+        <div className="w-px h-4 bg-border/50" />
+        <span className="text-[13px] font-medium text-text-primary truncate">
+          {workspaceRoot?.split("/").pop() || "crow-ui"}
+        </span>
+        <div className="flex-1" />
+        <button
+          onClick={() => setCommandPaletteOpen(true)}
+          className="flex items-center gap-2 px-2 py-0.5 rounded text-[11px] text-text-secondary hover:text-text-primary hover:bg-hover cursor-pointer border-none"
+          style={{ backgroundColor: "var(--theme-surface-30)" }}
+        >
+          <span>Ctrl+Shift+P</span>
+        </button>
+      </div>
+
+      <CommandPalette
+        commands={commands}
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
       />
 
       <div className="flex-1 overflow-hidden p-2 z-10 relative">
@@ -1340,6 +1306,20 @@ export default function App() {
             }}
             onRenderTab={(node: TabNode, renderValues: ITabRenderValues) => {
               renderValues.leading = getTabIcon(node.getName());
+
+              // Add dirty indicator for editor tabs with unsaved changes
+              if (node.getComponent() === "editor") {
+                const path = node.getConfig()?.path as string;
+                if (path && dirtyFiles.has(path)) {
+                  renderValues.content = (
+                    <span className="flex items-center gap-1.5">
+                      {renderValues.content}
+                      <span className="w-2 h-2 rounded-full bg-[var(--color-primary)] inline-block flex-shrink-0" />
+                    </span>
+                  );
+                }
+              }
+
               // Wrap tab content in a context menu trigger for right-click split
               const originalContent = renderValues.content;
               const nodeId = node.getId();
@@ -1392,8 +1372,11 @@ export default function App() {
         onActivate={(id) => {
           if (id === "explorer") {
             toggleExplorer();
+          } else if (id === "search") {
+            handleMenuAction("search");
+          } else {
+            setActiveActivity(id);
           }
-          setActiveActivity(id);
         }}
         connected={connected}
         saving={saving}

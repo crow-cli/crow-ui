@@ -611,13 +611,6 @@ export default function MessageEditor({
         borderColor: "var(--theme-border)",
       }}
     >
-      {/* Queue indicator */}
-      {queuedCount > 0 && (
-        <div className="text-[11px] text-text-secondary mb-1 flex items-center gap-1">
-          <span>⏳</span>
-          <span>{queuedCount} message{queuedCount > 1 ? "s" : ""} queued</span>
-        </div>
-      )}
       <div className="flex gap-2 items-end">
         <div
           ref={editorRef}

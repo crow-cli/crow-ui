@@ -34,6 +34,26 @@ pub enum SessionEvent {
     },
 }
 
+/// Lifecycle state of a prompt turn, owned by the backend.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PromptTurnState {
+    #[default]
+    Idle,
+    /// We sent session/prompt and are awaiting the agent's PromptResponse.
+    Running,
+    /// Agent responded with a stopReason.
+    Complete {
+        stop_reason: String,
+    },
+    /// Client called session/cancel.
+    Cancelled,
+    /// Something went wrong (timeout, disconnect, etc.).
+    Error {
+        message: String,
+    },
+}
+
 /// A running ACP session owned by the backend.
 pub struct AcpSession {
     pub session_id: String,
@@ -48,6 +68,9 @@ pub struct AcpSession {
     events_tx: broadcast::Sender<SessionEvent>,
     next_id: AtomicU64,
     _io_task: tokio::task::JoinHandle<()>,
+
+    /// Current prompt turn state — backend is source of truth.
+    pub prompt_turn_state: Arc<Mutex<PromptTurnState>>,
 }
 
 /// Manager for multiple backend-owned ACP sessions.
@@ -154,6 +177,8 @@ impl AcpSession {
             }
         });
 
+        let prompt_turn_state = Arc::new(Mutex::new(PromptTurnState::Idle));
+
         let mut session = Self {
             session_id: String::new(),
             agent_id: agent_id.clone(),
@@ -166,6 +191,7 @@ impl AcpSession {
             events_tx,
             next_id: AtomicU64::new(1),
             _io_task: io_task,
+            prompt_turn_state,
         };
 
         // ── ACP handshake ──
@@ -204,7 +230,7 @@ impl AcpSession {
         Ok(Arc::new(session))
     }
 
-    /// Send a JSON-RPC request and wait for the response.
+    /// Send a JSON-RPC request and wait for the response (with 30s timeout).
     async fn request<Req: Serialize, Resp: for<'de> Deserialize<'de>>(
         &self,
         method: &str,
@@ -238,6 +264,57 @@ impl AcpSession {
         }
     }
 
+    /// Send a JSON-RPC request and wait indefinitely (no timeout).
+    /// Used for session/prompt which can take minutes.
+    async fn request_no_timeout<Req: Serialize, Resp: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        params: Req,
+    ) -> Result<Resp> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0",
+            id,
+            method: method.to_string(),
+            params,
+        };
+        let line = serde_json::to_string(&req).context("serialize request")?;
+
+        let (tx, rx) = oneshot::channel();
+        self.pending_requests.lock().await.insert(id, tx);
+
+        self.stdin_tx
+            .send(line)
+            .await
+            .map_err(|_| anyhow::anyhow!("agent stdin closed"))?;
+
+        let result = rx
+            .await
+            .map_err(|_| anyhow::anyhow!("response channel closed"))?;
+
+        match result {
+            Ok(val) => serde_json::from_value(val).context("deserialize response"),
+            Err(msg) => Err(anyhow::anyhow!("ACP error: {msg}")),
+        }
+    }
+
+    /// Broadcast a synthetic session/update so the frontend receives prompt lifecycle events
+    /// on the same channel as regular agent updates.
+    fn broadcast_prompt_state(&self, state: PromptTurnState) {
+        eprintln!("[BROADCAST PROMPT STATE] session={} state={:?}", self.session_id, state);
+        let session_update = match &state {
+            PromptTurnState::Idle => serde_json::json!({ "sessionUpdate": "prompt_state", "status": "idle" }),
+            PromptTurnState::Running => serde_json::json!({ "sessionUpdate": "prompt_state", "status": "running" }),
+            PromptTurnState::Complete { stop_reason } => serde_json::json!({ "sessionUpdate": "prompt_complete", "stopReason": stop_reason }),
+            PromptTurnState::Cancelled => serde_json::json!({ "sessionUpdate": "prompt_complete", "stopReason": "cancelled" }),
+            PromptTurnState::Error { message } => serde_json::json!({ "sessionUpdate": "prompt_complete", "stopReason": "error", "error": message }),
+        };
+        let _ = self.events_tx.send(SessionEvent::Update {
+            session_id: self.session_id.clone(),
+            update: session_update,
+        });
+    }
+
     /// Send a JSON-RPC notification (no response expected).
     async fn notify<Req: Serialize>(&self, method: &str, params: Req) -> Result<()> {
         let notif = JsonRpcNotification {
@@ -255,6 +332,11 @@ impl AcpSession {
 
     /// Cancel the current prompt turn.
     pub async fn cancel(&self) -> Result<()> {
+        {
+            let mut state = self.prompt_turn_state.lock().await;
+            *state = PromptTurnState::Cancelled;
+        }
+        self.broadcast_prompt_state(PromptTurnState::Cancelled);
         let notif = acp::CancelNotification::new(acp::SessionId::new(self.session_id.clone()));
         self.notify("session/cancel", notif).await
     }
@@ -282,12 +364,44 @@ impl AcpSession {
     }
 
     /// Send a prompt. Returns the full PromptResponse (including stopReason).
+    /// Broadcasts prompt_state → running when dispatching and prompt_complete when done.
     pub async fn prompt(&self, blocks: Vec<acp::ContentBlock>) -> Result<acp::PromptResponse> {
+        {
+            let mut state = self.prompt_turn_state.lock().await;
+            *state = PromptTurnState::Running;
+        }
+        self.broadcast_prompt_state(PromptTurnState::Running);
+
         let req = acp::PromptRequest::new(
             acp::SessionId::new(self.session_id.clone()),
             blocks,
         );
-        self.request::<_, acp::PromptResponse>("session/prompt", req).await
+        let result = self.request_no_timeout::<_, acp::PromptResponse>("session/prompt", req).await;
+
+        match &result {
+            Ok(resp) => {
+                let stop_reason = serde_json::to_string(&resp.stop_reason)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string();
+                let state = PromptTurnState::Complete { stop_reason };
+                {
+                    let mut s = self.prompt_turn_state.lock().await;
+                    *s = state.clone();
+                }
+                self.broadcast_prompt_state(state);
+            }
+            Err(e) => {
+                let state = PromptTurnState::Error { message: e.to_string() };
+                {
+                    let mut s = self.prompt_turn_state.lock().await;
+                    *s = state.clone();
+                }
+                self.broadcast_prompt_state(state);
+            }
+        }
+
+        result
     }
 
     /// Subscribe to session events (updates, disconnects).

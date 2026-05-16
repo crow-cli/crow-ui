@@ -105,3 +105,8 @@
 - `frontend/src/lib/settings.ts` has 329 lines of frontend defaults — most should come from backend only
 - `murder-ide-v2/` directory still exists with broken rebrand — `murder-ide-working/` is canonical
 - `AGENTS.md` grew too large — keep concise, move detailed patterns to `docs/journal/`
+
+
+- Timer on long running bash commands
+- Cancel/kill terminal button on long running bash commands
+- Proper state management if we are between a session/prompt and end_turn

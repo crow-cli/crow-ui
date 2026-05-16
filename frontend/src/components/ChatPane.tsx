@@ -11,6 +11,7 @@ import {
   type ConnectionStatus,
   type SessionInfo,
   type AgentConfig,
+  type PromptTurnState,
 } from "../lib/acp-store";
 import { groupNotifications, mergeToolCalls } from "../lib/acp-utils";
 import * as acpStore from "../lib/acp-store";
@@ -61,14 +62,18 @@ export default function ChatPane({
   const [isConnectingLocal, setIsConnectingLocal] = useState(false);
   const [localSessionId, setLocalSessionId] = useState<string | undefined>(undefined);
   const [queuedBlocks, setQueuedBlocks] = useState<ContentBlock[][]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [promptPending, setPromptPending] = useState(false);
+  const [promptTurnState, setPromptTurnState] = useState<PromptTurnState>({ status: "idle" });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevNotifLen = useRef(0);
-  const prevStreamingRef = useRef(false);
-  const streamingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const promptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Refs for stable access in effects (avoid stale closures)
+  const queuedBlocksRef = useRef<ContentBlock[][]>([]);
+  const doSendPromptRef = useRef<((blocks: ContentBlock[]) => void) | undefined>(undefined);
+
+  useEffect(() => {
+    queuedBlocksRef.current = queuedBlocks;
+  }, [queuedBlocks]);
 
   const effectiveSessionId = sessionId || localSessionId;
   const activeSessionId = effectiveSessionId || "disconnected";
@@ -76,19 +81,19 @@ export default function ChatPane({
   // Sync from store
   useEffect(() => {
     const s = acpStore.getSession(activeSessionId);
-    console.log(`[ChatPane] sync effect activeSessionId=${activeSessionId} status=${s.status} notifs=${s.notifications.length}`);
     setNotifications(s.notifications);
     setConnectionStatus(s.status);
     setSessionInfo(s.sessionInfo);
     setPendingPermission(s.pendingPermission);
+    setPromptTurnState(s.promptTurnState);
 
     const unsub = acpStore.subscribeToSession(activeSessionId, () => {
       const s2 = acpStore.getSession(activeSessionId);
-      console.log(`[ChatPane] notify activeSessionId=${activeSessionId} status=${s2.status} notifs=${s2.notifications.length}`);
       setNotifications(s2.notifications);
       setConnectionStatus(s2.status);
       setSessionInfo(s2.sessionInfo);
       setPendingPermission(s2.pendingPermission);
+      setPromptTurnState(s2.promptTurnState);
     });
     return unsub;
   }, [activeSessionId]);
@@ -273,70 +278,68 @@ export default function ChatPane({
   const isReady =
     connectionStatus === "ready" || connectionStatus === "connected";
 
-  // Streaming detection: track when agent is actively generating.
-  // prompt_complete from backend gives us the definitive end signal.
+  const isPromptRunning = promptTurnState.status === "running";
+
+  // Auto-send next queued message when prompt completes.
   useEffect(() => {
-    if (!isReady) {
-      setIsStreaming(false);
-      return;
+    if (isPromptRunning) return;
+    const next = queuedBlocksRef.current[0];
+    if (next && effectiveSessionId && isReady) {
+      setQueuedBlocks((prev) => prev.slice(1));
+      doSendPromptRef.current?.(next);
     }
-    const lastNotif = notifications[notifications.length - 1];
-    const lastUpdate = lastNotif?.type === "session_notification"
-      ? (lastNotif.data as any)?.update
-      : null;
+  }, [isPromptRunning, effectiveSessionId, isReady]);
 
-    // Definitive completion signal from backend
-    if (lastUpdate?.sessionUpdate === "prompt_complete") {
-      setIsStreaming(false);
-      setPromptPending(false);
-      if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
-      // Auto-send next queued message
-      if (queuedBlocks.length > 0 && effectiveSessionId) {
-        const next = queuedBlocks[0];
-        setQueuedBlocks((prev) => prev.slice(1));
-        acpStore.prompt(effectiveSessionId, next).catch((err) => {
-          console.error("Queued prompt failed:", err);
-        });
-      }
-      return;
-    }
-
-    const lastIsChunk =
-      lastUpdate?.sessionUpdate === "agent_message_chunk" ||
-      lastUpdate?.sessionUpdate === "agent_thought_chunk" ||
-      (lastUpdate?.type === "tool_call_update" && lastUpdate?.status === "in_progress");
-
-    if (lastIsChunk) {
-      setIsStreaming(true);
-      if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
-    }
-
-    return () => {
-      if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
-    };
-  }, [notifications, isReady]);
-
-  const handleSend = useCallback(
+  // Low-level send: calls backend. Prompt lifecycle is owned by backend.
+  const doSendPrompt = useCallback(
     async (blocks: ContentBlock[]) => {
-      if (!effectiveSessionId || connectionStatus !== "ready") return;
-      if (blocks.length === 0) return;
-
-      // If a prompt is already in flight, queue this message
-      if (promptPending || isStreaming) {
-        setQueuedBlocks((prev) => [...prev, blocks]);
-        return;
-      }
-
-      setPromptPending(true);
+      if (!effectiveSessionId) return;
       try {
         await acpStore.prompt(effectiveSessionId, blocks);
       } catch (err) {
         console.error("Prompt failed:", err);
-        setPromptPending(false);
       }
     },
-    [connectionStatus, effectiveSessionId, isStreaming, promptPending],
+    [effectiveSessionId],
   );
+
+  useEffect(() => {
+    doSendPromptRef.current = doSendPrompt;
+  }, [doSendPrompt]);
+
+  const handleSend = useCallback(
+    (blocks: ContentBlock[]) => {
+      if (!effectiveSessionId || connectionStatus !== "ready") return;
+      if (blocks.length === 0) return;
+
+      if (isPromptRunning) {
+        setQueuedBlocks((prev) => [...prev, blocks]);
+        return;
+      }
+
+      doSendPrompt(blocks);
+    },
+    [connectionStatus, effectiveSessionId, isPromptRunning, doSendPrompt],
+  );
+
+  const removeQueuedItem = useCallback((index: number) => {
+    setQueuedBlocks((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const sendQueuedItemNow = useCallback((index: number) => {
+    const item = queuedBlocksRef.current[index];
+    if (!item) return;
+    if (isPromptRunning) {
+      // Move to front of queue
+      setQueuedBlocks((prev) => {
+        const next = prev.filter((_, i) => i !== index);
+        return [item, ...next];
+      });
+      return;
+    }
+    setQueuedBlocks((prev) => prev.filter((_, i) => i !== index));
+    doSendPromptRef.current?.(item);
+  }, [isPromptRunning]);
 
 
 
@@ -378,7 +381,7 @@ export default function ChatPane({
         statusLabel={statusLabel}
         isReady={isReady}
         isConnecting={connectionStatus === "connecting" || isConnectingLocal}
-        isStreaming={isStreaming}
+        isStreaming={isPromptRunning}
         agentName={sessionInfo?.agentDisplayName || agentConfig.name || "agent"}
         sessionId={sessionInfo?.sessionId}
         hasSession={!!effectiveSessionId}
@@ -411,7 +414,7 @@ export default function ChatPane({
           <MessageGroup
             key={group[0].id}
             group={group}
-            isStreaming={isStreaming}
+            isStreaming={isPromptRunning}
             isLast={idx === messageGroups.length - 1}
             fetchedFiles={fetchedFiles}
             sessionId={effectiveSessionId}
@@ -420,11 +423,20 @@ export default function ChatPane({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Queue management UI */}
+      {queuedBlocks.length > 0 && (
+        <QueueBar
+          items={queuedBlocks}
+          onRemove={removeQueuedItem}
+          onSendNow={sendQueuedItemNow}
+        />
+      )}
+
       {effectiveSessionId ? (
         <MessageEditor
           workspaceRoot={workspaceRoot}
           disabled={!isReady}
-          isStreaming={isStreaming || promptPending}
+          isStreaming={isPromptRunning}
           placeholder={
             isReady
               ? `Ask ${sessionInfo?.agentDisplayName || agentConfig.name || "agent"}...`
@@ -457,8 +469,74 @@ export default function ChatPane({
 }
 
 /* ------------------------------------------------------------------ */
-/* Sub-components (unchanged)                                          */
+/* Sub-components                                                      */
 /* ------------------------------------------------------------------ */
+
+function extractBlocksText(blocks: ContentBlock[]): string {
+  return blocks
+    .map((b) => (b.type === "text" ? b.text : b.type === "image" ? "[Image]" : "[File]"))
+    .join("")
+    .slice(0, 120);
+}
+
+function QueueBar({
+  items,
+  onRemove,
+  onSendNow,
+}: {
+  items: ContentBlock[][];
+  onRemove: (index: number) => void;
+  onSendNow: (index: number) => void;
+}) {
+  return (
+    <div
+      className="shrink-0 px-3 py-2 border-t flex flex-col gap-1.5"
+      style={{ borderColor: "var(--theme-border)", backgroundColor: "var(--theme-chat-input-bg)" }}
+    >
+      <div className="text-[11px] text-text-secondary font-medium">
+        ⏳ Queued messages ({items.length})
+      </div>
+      <div className="flex flex-col gap-1">
+        {items.map((blocks, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-2 px-2 py-1 rounded text-[11px]"
+            style={{
+              backgroundColor: "var(--theme-surface-30)",
+              border: "1px solid var(--theme-border)",
+            }}
+          >
+            <span className="flex-1 truncate text-text-secondary">
+              {extractBlocksText(blocks) || "(empty)"}
+            </span>
+            <button
+              onClick={() => onSendNow(i)}
+              className="px-1.5 py-0.5 rounded text-[10px] cursor-pointer border-none"
+              style={{
+                backgroundColor: "var(--theme-accent-20)",
+                color: "var(--theme-accent)",
+              }}
+              title="Send now"
+            >
+              ▶
+            </button>
+            <button
+              onClick={() => onRemove(i)}
+              className="px-1.5 py-0.5 rounded text-[10px] cursor-pointer border-none"
+              style={{
+                backgroundColor: "var(--theme-destructive-15)",
+                color: "var(--theme-destructive)",
+              }}
+              title="Remove"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function Header({
   statusLabel,

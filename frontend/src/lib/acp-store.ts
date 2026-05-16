@@ -18,6 +18,14 @@ export type ConnectionStatus =
   | "creating_session"
   | "ready";
 
+/** Prompt turn lifecycle — backend is the source of truth. */
+export type PromptTurnState =
+  | { status: "idle" }
+  | { status: "running" }
+  | { status: "complete"; stopReason: string }
+  | { status: "cancelled" }
+  | { status: "error"; message: string };
+
 export interface AcpNotification {
   id: string;
   type: "session_notification" | "connection_change" | "error";
@@ -59,6 +67,7 @@ export interface SessionInfo {
 
 interface SessionState {
   status: ConnectionStatus;
+  promptTurnState: PromptTurnState;
   sessionInfo: SessionInfo | null;
   notifications: AcpNotification[];
   pendingPermission: {
@@ -146,6 +155,7 @@ export async function createSession(
 
   const state: SessionState = {
     status: "ready",
+    promptTurnState: { status: "idle" },
     sessionInfo: {
       sessionId,
       agentId: result.agentId || "",
@@ -205,6 +215,36 @@ export function handleSessionEvent(sessionId: string, update: unknown) {
     return;
   }
 
+  const innerUpdate = update as any;
+  const sessionUpdate = innerUpdate?.sessionUpdate;
+
+  // Backend-owned prompt lifecycle — update promptTurnState and do NOT
+  // add these synthetic updates to the notification list (they're not chat messages).
+  if (sessionUpdate === "prompt_state") {
+    const status = innerUpdate?.status;
+    if (status === "running") {
+      setSessionState(sessionId, { promptTurnState: { status: "running" } });
+    } else if (status === "idle") {
+      setSessionState(sessionId, { promptTurnState: { status: "idle" } });
+    }
+    return;
+  }
+
+  if (sessionUpdate === "prompt_complete") {
+    const stopReason = innerUpdate?.stopReason || "unknown";
+    if (stopReason === "cancelled") {
+      setSessionState(sessionId, { promptTurnState: { status: "cancelled" } });
+    } else if (stopReason === "error") {
+      setSessionState(sessionId, {
+        promptTurnState: { status: "error", message: innerUpdate?.error || "unknown error" },
+      });
+    } else {
+      setSessionState(sessionId, { promptTurnState: { status: "complete", stopReason } });
+    }
+    return;
+  }
+
+  // Regular agent notification (chunk, tool call, plan, etc.) — append to list.
   const notification: AcpNotification = {
     id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     type: "session_notification",
@@ -259,6 +299,7 @@ export function getSession(sessionId: string): SessionState {
   return (
     sessions.get(sessionId) || {
       status: "disconnected",
+      promptTurnState: { status: "idle" },
       sessionInfo: null,
       notifications: [],
       pendingPermission: null,

@@ -779,7 +779,7 @@ async fn create_session_handler(
 
 /// HTTP handler: POST /api/acp/sessions/:session_id/prompt
 /// Sends prompt to backend-owned ACP session. Fire-and-forget: returns 202 immediately.
-/// Prompt completion (end_turn / error) is broadcast to frontends via acp-session-event.
+/// Prompt lifecycle (started / complete / error) is broadcast by AcpSession::prompt().
 async fn prompt_session_handler(
     Path(session_id): Path<String>,
     State(app): State<App>,
@@ -807,35 +807,14 @@ async fn prompt_session_handler(
         None => vec![],
     };
 
-    let forward_tx = state.acp_session_events_tx.clone();
     drop(state);
 
+    // Background: AcpSession::prompt() broadcasts prompt_state → running and
+    // prompt_complete when the agent responds (or errors). No timeout — prompts
+    // can run for minutes while the agent uses tools.
     tokio::spawn(async move {
-        match session.prompt(blocks).await {
-            Ok(resp) => {
-                let stop_reason = serde_json::to_string(&resp.stop_reason)
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string();
-                let _ = forward_tx.send(SessionEvent::Update {
-                    session_id: session_id.clone(),
-                    update: serde_json::json!({
-                        "sessionUpdate": "prompt_complete",
-                        "stopReason": stop_reason,
-                    }),
-                });
-            }
-            Err(e) => {
-                eprintln!("[prompt background] prompt failed for session {session_id}: {e}");
-                let _ = forward_tx.send(SessionEvent::Update {
-                    session_id: session_id.clone(),
-                    update: serde_json::json!({
-                        "sessionUpdate": "prompt_complete",
-                        "stopReason": "error",
-                        "error": e.to_string(),
-                    }),
-                });
-            }
+        if let Err(e) = session.prompt(blocks).await {
+            eprintln!("[prompt background] prompt failed for session {session_id}: {e}");
         }
     });
 

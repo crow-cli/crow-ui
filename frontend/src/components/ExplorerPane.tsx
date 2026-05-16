@@ -113,20 +113,46 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
           msg.method === "worktree-file-created" ||
           msg.method === "worktree-file-deleted"
         ) {
-          // Only refresh on structural changes, not content edits
-          // Invalidate cache for the parent of the changed file
           if (msg.params?.path) {
-            const parentPath = msg.params.path.replace(/\/[^/]+$/, "");
+            const changedPath = msg.params.path;
+            const parentPath = changedPath.replace(/\/[^/]+$/, "") || root;
+
             setChildCache((prev) => {
               const next = new Map(prev);
+              // Remove the parent's cached children
               next.delete(parentPath);
-              // Also delete root if parent is root
-              if (parentPath === root) next.delete(root);
+              if (parentPath === root) {
+                next.delete(root);
+              }
+              // If a directory was deleted, purge all descendant caches
+              if (msg.method === "worktree-file-deleted") {
+                for (const key of Array.from(next.keys())) {
+                  if (key === changedPath || key.startsWith(changedPath + "/")) {
+                    next.delete(key);
+                  }
+                }
+              }
               return next;
             });
-            // Only reload root if the change was at root level
+
+            // If a directory was deleted, collapse it
+            if (msg.method === "worktree-file-deleted") {
+              setExpandedDirs((prev) => {
+                const next = new Set(prev);
+                for (const key of Array.from(next)) {
+                  if (key === changedPath || key.startsWith(changedPath + "/")) {
+                    next.delete(key);
+                  }
+                }
+                return next;
+              });
+            }
+
+            // Reload the affected parent directory
             if (parentPath === root) {
               loadDir(root);
+            } else {
+              loadChildren(parentPath, true);
             }
           }
         }
@@ -153,8 +179,8 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
     }
   };
 
-  const loadChildren = async (path: string): Promise<FileEntry[]> => {
-    if (childCache.has(path)) {
+  const loadChildren = async (path: string, force = false): Promise<FileEntry[]> => {
+    if (!force && childCache.has(path)) {
       return childCache.get(path)!;
     }
     try {
