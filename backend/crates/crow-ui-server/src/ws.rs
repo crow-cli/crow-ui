@@ -195,6 +195,8 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
             worktree_event = worktree_rx.recv() => {
                 match worktree_event {
                     Ok(json) => {
+                        tracing::debug!("[ws] forwarding worktree event: {}", &json[..json.len().min(200)]);
+
                         // Update document model if file is open — keeps backend model in sync
                         // with external changes (e.g. MCP edit tool writing directly to disk)
                         if let Ok(event) = serde_json::from_str::<Value>(&json) {

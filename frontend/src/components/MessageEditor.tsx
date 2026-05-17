@@ -5,6 +5,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import { Extension } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
+import { Button } from "./ui/button";
 import {
   type SuggestionProps,
   type SuggestionKeyDownProps,
@@ -17,6 +18,7 @@ import {
   useRef,
   useMemo,
 } from "react";
+import { cn } from "../lib/utils";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
@@ -38,7 +40,8 @@ interface MessageEditorProps {
   placeholder: string;
   queuedCount?: number;
   configOptions?: SessionConfigOption[];
-  onSend: (blocks: ContentBlock[]) => void;
+  draftText?: string;
+  onSend: (blocks: ContentBlock[], text?: string) => void;
   onCancel?: () => void;
   onModelChange?: (modelValue: string) => void;
 }
@@ -248,6 +251,8 @@ function extractContentBlocks(doc: unknown): ContentBlock[] {
   const processNode = (node: JSONNode) => {
     if (node.type === "text") {
       currentText += node.text ?? "";
+    } else if (node.type === "hardBreak") {
+      currentText += "\n";
     } else if (node.type === "mention") {
       flushText();
       const id = String(node.attrs?.id ?? "");
@@ -324,6 +329,7 @@ export default function MessageEditor({
   placeholder,
   queuedCount = 0,
   configOptions,
+  draftText,
   onSend,
   onCancel,
   onModelChange,
@@ -331,6 +337,7 @@ export default function MessageEditor({
   const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const suggestionOpenRef = useRef(false);
+  const lastDraftRef = useRef<string | undefined>(undefined);
 
   // Model config: find the option with category === "model"
   const modelConfig = configOptions?.find((c) => c.category === "model" || c.id === "model");
@@ -584,6 +591,61 @@ export default function MessageEditor({
     }
   }, [editor, disabled]);
 
+  // Load draft text into editor when it changes (for editing queued messages)
+  useEffect(() => {
+    if (!editor || draftText === undefined) return;
+    if (draftText === lastDraftRef.current) return;
+    lastDraftRef.current = draftText;
+
+    if (!draftText) {
+      editor.commands.clearContent();
+      return;
+    }
+
+    // Convert plain text to TipTap doc with paragraphs
+    const paragraphs = draftText.split(/\n\n+/);
+    const json = {
+      type: "doc",
+      content: paragraphs.map((p) => ({
+        type: "paragraph",
+        content: p ? [{ type: "text", text: p }] : [],
+      })),
+    };
+    editor.commands.setContent(json);
+    editor.commands.focus("end");
+  }, [editor, draftText]);
+
+  // Auto-scroll: keep cursor in view when typing at the bottom
+  useEffect(() => {
+    if (!editor || !editorRef.current) return;
+    const container = editorRef.current;
+
+    const handleUpdate = () => {
+      const { state } = editor;
+      const endPos = state.doc.content.size;
+      const selEnd = state.selection.to;
+      // Only auto-scroll if cursor is near the end
+      if (selEnd < endPos - 2) return;
+
+      requestAnimationFrame(() => {
+        try {
+          const coords = editor.view.coordsAtPos(selEnd);
+          const containerRect = container.getBoundingClientRect();
+          if (coords.bottom > containerRect.bottom - 8) {
+            container.scrollTop = container.scrollHeight;
+          }
+        } catch {
+          // coordsAtPos can fail on empty docs
+        }
+      });
+    };
+
+    editor.on("update", handleUpdate);
+    return () => {
+      editor.off("update", handleUpdate);
+    };
+  }, [editor]);
+
   const handleSendClick = useCallback(() => {
     if (!editor || disabled) return;
     const json = editor.getJSON();
@@ -594,9 +656,35 @@ export default function MessageEditor({
       return true; // images, mentions always count
     });
     if (!hasContent) return;
-    onSend(blocks);
+    // Extract plain text for editing queued messages later
+    const text = blocks.map((b) => (b.type === "text" ? b.text : b.type === "image" ? "[Image]" : b.type === "resource_link" ? `@[${b.name}](${b.uri})` : "")).join("");
+    onSend(blocks, text);
     editor.commands.clearContent();
   }, [editor, disabled, onSend]);
+
+  const handleCancelClick = useCallback(() => {
+    onCancel?.();
+  }, [onCancel]);
+
+  // Track whether editor has content to send (updates on every keystroke)
+  const [hasEditorContent, setHasEditorContent] = useState(false);
+  useEffect(() => {
+    if (!editor) return;
+    const checkContent = () => {
+      const json = editor.getJSON();
+      const blocks = extractContentBlocks(json);
+      const has = blocks.some((b) => {
+        if (b.type === "text") return (b.text || "").trim().length > 0;
+        return true;
+      });
+      setHasEditorContent(has);
+    };
+    checkContent();
+    editor.on("update", checkContent);
+    return () => {
+      editor.off("update", checkContent);
+    };
+  }, [editor]);
 
   // Keep ref in sync so keyboard shortcut extension calls latest handler
   handleSendRef.current = handleSendClick;
@@ -604,21 +692,14 @@ export default function MessageEditor({
   if (!editor) return null;
 
   return (
-    <div
-      className="px-3 py-2 border-t shrink-0 backdrop-blur-md"
-      style={{
-        backgroundColor: "var(--theme-chat-input-bg)",
-        borderColor: "var(--theme-border)",
-      }}
-    >
+    <div className="px-3 py-2 border-t border-border shrink-0 backdrop-blur-md bg-surface">
       <div className="flex gap-2 items-end">
         <div
           ref={editorRef}
-          className={`flex-1 relative rounded-md text-text-primary text-[13px] outline-none min-h-[80px] max-h-[240px] overflow-y-auto backdrop-blur-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
-          style={{
-            backgroundColor: "var(--theme-elevated-40)",
-            border: "1px solid var(--theme-border)",
-          }}
+          className={cn(
+            "flex-1 relative rounded-md text-text-primary text-[13px] outline-none min-h-[120px] max-h-[320px] overflow-y-auto backdrop-blur-sm bg-secondary border border-border",
+            disabled && "opacity-50 cursor-not-allowed"
+          )}
           onClick={() => !disabled && editor.chain().focus().run()}
         >
           <div className="px-2.5 py-1.5 pb-7">
@@ -638,11 +719,8 @@ export default function MessageEditor({
                     onModelChange?.(val);
                   }}
                   disabled={disabled}
-                  className="text-[11px] px-1.5 py-0.5 rounded border cursor-pointer appearance-none pr-4"
+                  className="text-[11px] px-1.5 py-0.5 rounded border border-border cursor-pointer appearance-none pr-4 text-text-secondary bg-muted"
                   style={{
-                    borderColor: "var(--theme-border)",
-                    color: "var(--theme-text-secondary)",
-                    backgroundColor: "var(--theme-surface-30)",
                     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23999' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E")`,
                     backgroundRepeat: "no-repeat",
                     backgroundPosition: "right 4px center",
@@ -659,47 +737,16 @@ export default function MessageEditor({
             )}
 
             {/* Send / Cancel button */}
-            <button
-              onClick={isStreaming ? onCancel : handleSendClick}
+            {/* When streaming: show stop if editor is empty, send if editor has content */}
+            <Button
+              variant={isStreaming && !hasEditorContent ? "destructive" : "default"}
+              size="icon"
+              className="pointer-events-auto w-7 h-7 text-[13px]"
               disabled={disabled && !isStreaming}
-              className="pointer-events-auto w-7 h-7 flex items-center justify-center rounded-md text-[13px] border-none transition-all"
-              style={
-                isStreaming
-                  ? {
-                      backgroundColor: "var(--theme-destructive)",
-                      color: "var(--theme-text-inverse)",
-                      cursor: "pointer",
-                    }
-                  : !disabled
-                    ? {
-                        backgroundColor: "var(--theme-accent-80)",
-                        color: "var(--theme-text-inverse)",
-                        cursor: "pointer",
-                      }
-                    : {
-                        backgroundColor: "var(--theme-surface-50)",
-                        color: "var(--theme-text-secondary)",
-                        cursor: "default",
-                      }
-              }
-              onMouseEnter={(e) => {
-                if (isStreaming) {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive-80)";
-                } else if (!disabled) {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (isStreaming) {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-destructive)";
-                } else if (!disabled) {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--theme-accent-80)";
-                }
-              }}
-              title={isStreaming ? "Cancel" : "Send"}
+              onClick={isStreaming && !hasEditorContent ? handleCancelClick : handleSendClick}
             >
-              {isStreaming ? "⏹" : "➤"}
-            </button>
+              {isStreaming && !hasEditorContent ? "⏹" : "➤"}
+            </Button>
           </div>
         </div>
       </div>

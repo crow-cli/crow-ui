@@ -22,11 +22,18 @@ import InlineTerminal from "./InlineTerminal";
 import { FileReadView, FileWriteView, FileEditView } from "./FileViews";
 import { WebFetchView, WebSearchView } from "./WebViews";
 import MessageEditor from "./MessageEditor";
+import { Button } from "./ui/button";
+import { cn } from "../lib/utils";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type GroupedNotifications = ReturnType<typeof groupNotifications>;
 type GroupItem = GroupedNotifications[number][number];
+
+interface QueuedItem {
+  blocks: ContentBlock[];
+  text: string;
+}
 
 /** Cache for file contents used in diffs — kept for backward compat */
 
@@ -61,19 +68,20 @@ export default function ChatPane({
   >(new Map());
   const [isConnectingLocal, setIsConnectingLocal] = useState(false);
   const [localSessionId, setLocalSessionId] = useState<string | undefined>(undefined);
-  const [queuedBlocks, setQueuedBlocks] = useState<ContentBlock[][]>([]);
+  const [queuedItems, setQueuedItems] = useState<QueuedItem[]>([]);
+  const [editingDraft, setEditingDraft] = useState<string | undefined>(undefined);
   const [promptTurnState, setPromptTurnState] = useState<PromptTurnState>({ status: "idle" });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevNotifLen = useRef(0);
 
   // Refs for stable access in effects (avoid stale closures)
-  const queuedBlocksRef = useRef<ContentBlock[][]>([]);
+  const queuedItemsRef = useRef<QueuedItem[]>([]);
   const doSendPromptRef = useRef<((blocks: ContentBlock[]) => void) | undefined>(undefined);
 
   useEffect(() => {
-    queuedBlocksRef.current = queuedBlocks;
-  }, [queuedBlocks]);
+    queuedItemsRef.current = queuedItems;
+  }, [queuedItems]);
 
   const effectiveSessionId = sessionId || localSessionId;
   const activeSessionId = effectiveSessionId || "disconnected";
@@ -283,10 +291,10 @@ export default function ChatPane({
   // Auto-send next queued message when prompt completes.
   useEffect(() => {
     if (isPromptRunning) return;
-    const next = queuedBlocksRef.current[0];
+    const next = queuedItemsRef.current[0];
     if (next && effectiveSessionId && isReady) {
-      setQueuedBlocks((prev) => prev.slice(1));
-      doSendPromptRef.current?.(next);
+      setQueuedItems((prev) => prev.slice(1));
+      doSendPromptRef.current?.(next.blocks);
     }
   }, [isPromptRunning, effectiveSessionId, isReady]);
 
@@ -308,12 +316,14 @@ export default function ChatPane({
   }, [doSendPrompt]);
 
   const handleSend = useCallback(
-    (blocks: ContentBlock[]) => {
+    (blocks: ContentBlock[], text?: string) => {
       if (!effectiveSessionId || connectionStatus !== "ready") return;
       if (blocks.length === 0) return;
 
+      const item: QueuedItem = { blocks, text: text || extractBlocksText(blocks) };
+
       if (isPromptRunning) {
-        setQueuedBlocks((prev) => [...prev, blocks]);
+        setQueuedItems((prev) => [...prev, item]);
         return;
       }
 
@@ -323,22 +333,29 @@ export default function ChatPane({
   );
 
   const removeQueuedItem = useCallback((index: number) => {
-    setQueuedBlocks((prev) => prev.filter((_, i) => i !== index));
+    setQueuedItems((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const editQueuedItem = useCallback((index: number) => {
+    const item = queuedItemsRef.current[index];
+    if (!item) return;
+    setEditingDraft(item.text);
+    setQueuedItems((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
   const sendQueuedItemNow = useCallback((index: number) => {
-    const item = queuedBlocksRef.current[index];
+    const item = queuedItemsRef.current[index];
     if (!item) return;
     if (isPromptRunning) {
       // Move to front of queue
-      setQueuedBlocks((prev) => {
+      setQueuedItems((prev) => {
         const next = prev.filter((_, i) => i !== index);
         return [item, ...next];
       });
       return;
     }
-    setQueuedBlocks((prev) => prev.filter((_, i) => i !== index));
-    doSendPromptRef.current?.(item);
+    setQueuedItems((prev) => prev.filter((_, i) => i !== index));
+    doSendPromptRef.current?.(item.blocks);
   }, [isPromptRunning]);
 
 
@@ -424,10 +441,11 @@ export default function ChatPane({
       </div>
 
       {/* Queue management UI */}
-      {queuedBlocks.length > 0 && (
+      {queuedItems.length > 0 && (
         <QueueBar
-          items={queuedBlocks}
+          items={queuedItems}
           onRemove={removeQueuedItem}
+          onEdit={editQueuedItem}
           onSendNow={sendQueuedItemNow}
         />
       )}
@@ -442,8 +460,9 @@ export default function ChatPane({
               ? `Ask ${sessionInfo?.agentDisplayName || agentConfig.name || "agent"}...`
               : statusLabel
           }
-          queuedCount={queuedBlocks.length}
+          queuedCount={queuedItems.length}
           configOptions={sessionInfo?.configOptions}
+          draftText={editingDraft}
           onSend={handleSend}
           onCancel={handleCancel}
           onModelChange={(val) => {
@@ -482,55 +501,55 @@ function extractBlocksText(blocks: ContentBlock[]): string {
 function QueueBar({
   items,
   onRemove,
+  onEdit,
   onSendNow,
 }: {
-  items: ContentBlock[][];
+  items: QueuedItem[];
   onRemove: (index: number) => void;
+  onEdit: (index: number) => void;
   onSendNow: (index: number) => void;
 }) {
   return (
-    <div
-      className="shrink-0 px-3 py-2 border-t flex flex-col gap-1.5"
-      style={{ borderColor: "var(--theme-border)", backgroundColor: "var(--theme-chat-input-bg)" }}
-    >
+    <div className="shrink-0 px-3 py-2 border-t border-border bg-surface flex flex-col gap-1.5">
       <div className="text-[11px] text-text-secondary font-medium">
         ⏳ Queued messages ({items.length})
       </div>
       <div className="flex flex-col gap-1">
-        {items.map((blocks, i) => (
+        {items.map((item, i) => (
           <div
             key={i}
-            className="flex items-center gap-2 px-2 py-1 rounded text-[11px]"
-            style={{
-              backgroundColor: "var(--theme-surface-30)",
-              border: "1px solid var(--theme-border)",
-            }}
+            className="flex items-center gap-2 px-2 py-1 rounded text-[11px] bg-secondary border border-border"
           >
             <span className="flex-1 truncate text-text-secondary">
-              {extractBlocksText(blocks) || "(empty)"}
+              {item.text || extractBlocksText(item.blocks) || "(empty)"}
             </span>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 px-1.5 text-[10px] text-text-secondary hover:text-text-primary"
+              onClick={() => onEdit(i)}
+              title="Edit"
+            >
+              ✎
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 px-1.5 text-[10px] text-accent hover:text-accent"
               onClick={() => onSendNow(i)}
-              className="px-1.5 py-0.5 rounded text-[10px] cursor-pointer border-none"
-              style={{
-                backgroundColor: "var(--theme-accent-20)",
-                color: "var(--theme-accent)",
-              }}
               title="Send now"
             >
               ▶
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 px-1.5 text-[10px] text-destructive hover:text-destructive"
               onClick={() => onRemove(i)}
-              className="px-1.5 py-0.5 rounded text-[10px] cursor-pointer border-none"
-              style={{
-                backgroundColor: "var(--theme-destructive-15)",
-                color: "var(--theme-destructive)",
-              }}
               title="Remove"
             >
               ✕
-            </button>
+            </Button>
           </div>
         ))}
       </div>

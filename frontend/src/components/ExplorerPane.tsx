@@ -115,6 +115,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
           msg.method === "worktree-file-created" ||
           msg.method === "worktree-file-deleted"
         ) {
+          console.log("[explorer] worktree event:", msg.method, msg.params?.path);
           if (msg.params?.path) {
             const changedPath = msg.params.path;
             const parentPath = changedPath.replace(/\/[^/]+$/, "") || root;

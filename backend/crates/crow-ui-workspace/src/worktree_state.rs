@@ -20,7 +20,7 @@ use parking_lot::RwLock;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use crate::watcher::{FileEvent, FileEventKind, FileWatcher};
+use crate::watcher::{FileEvent, FileEventKind, FileWatcher, WatchHandle};
 
 /// Maximum file size to cache (5MB). Larger files are not tracked.
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
@@ -93,6 +93,7 @@ struct Inner {
 pub struct WorktreeState {
     inner: Arc<RwLock<Inner>>,
     _watcher: Option<FileWatcher>,
+    watch_handle: Option<WatchHandle>,
     cleanup_handle: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -105,6 +106,7 @@ impl WorktreeState {
                 event_tx,
             })),
             _watcher: None,
+            watch_handle: None,
             cleanup_handle: None,
         }
     }
@@ -115,8 +117,8 @@ impl WorktreeState {
 
         // Start file watcher
         let inner = Arc::clone(&self.inner);
-        let watcher = FileWatcher::on_change(root, move |events| {
-            Self::handle_watcher_events(&inner, events);
+        let (watcher, watch_handle) = FileWatcher::on_change(root, move |events, handle| {
+            Self::handle_watcher_events(&inner, handle, events);
         })
         .unwrap();
 
@@ -124,6 +126,7 @@ impl WorktreeState {
         self.scan_directory(root);
 
         self._watcher = Some(watcher);
+        self.watch_handle = Some(watch_handle);
         self.start_cleanup_task();
     }
 
@@ -238,10 +241,21 @@ impl WorktreeState {
         }
     }
 
-    fn handle_watcher_events(inner: &Arc<RwLock<Inner>>, events: Vec<FileEvent>) {
+    fn handle_watcher_events(
+        inner: &Arc<RwLock<Inner>>,
+        watch_handle: &WatchHandle,
+        events: Vec<FileEvent>,
+    ) {
         for event in events {
+            log::debug!("[worktree] watcher event: {:?} {:?}", event.kind, event.path);
             match event.kind {
                 FileEventKind::Created => {
+                    // If it's a directory, start watching it so we see nested changes.
+                    if event.path.is_dir() {
+                        log::debug!("[worktree] new directory, adding to watcher: {:?}", event.path);
+                        watch_handle.watch_dir(&event.path);
+                    }
+
                     // Always send the event — directories can't be read_to_string,
                     // but the explorer still needs to refresh.
                     let content = std::fs::read_to_string(&event.path).unwrap_or_default();
@@ -256,6 +270,7 @@ impl WorktreeState {
                         &content,
                     );
                     if let Ok(json) = serde_json::to_string(&wt_event) {
+                        log::debug!("[worktree] emitting worktree-file-created for {:?}", event.path);
                         let _ = inner.event_tx.send(json);
                     }
                 }
@@ -311,6 +326,7 @@ impl WorktreeState {
                             &old_content,
                         );
                         if let Ok(json) = serde_json::to_string(&wt_event) {
+                            log::debug!("[worktree] emitting worktree-file-deleted for {:?}", event.path);
                             let _ = inner.event_tx.send(json);
                         }
                     }

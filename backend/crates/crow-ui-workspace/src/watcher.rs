@@ -69,77 +69,107 @@ fn collect_watch_dirs(root: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+/// Handle that can be cloned and used to dynamically add directories to watch.
+#[derive(Clone)]
+pub struct WatchHandle {
+    watcher: Arc<Mutex<RecommendedWatcher>>,
+}
+
+impl WatchHandle {
+    /// Add a new directory to watch dynamically (e.g. when a new dir is created).
+    pub fn watch_dir(&self, path: &Path) {
+        if should_ignore(path) {
+            return;
+        }
+        if let Ok(mut w) = self.watcher.lock() {
+            if let Err(e) = w.watch(path, RecursiveMode::NonRecursive) {
+                log::warn!("watcher: failed to watch new dir {:?}: {}", path, e);
+            } else {
+                log::debug!("watcher: now watching new dir {:?}", path);
+            }
+        }
+    }
+}
+
 /// File system watcher with built-in debouncing.
 pub struct FileWatcher {
-    _watcher: RecommendedWatcher,
+    watcher: Arc<Mutex<RecommendedWatcher>>,
     _debounce_handle: std::thread::JoinHandle<()>,
     stop: Arc<Mutex<bool>>,
 }
 
 impl FileWatcher {
     /// Create a new watcher on `root` with the default debounce window.
-    pub fn new(root: &Path) -> WorkspaceResult<Self> {
+    pub fn new(root: &Path) -> WorkspaceResult<(Self, WatchHandle)> {
         Self::with_debounce(root, Duration::from_millis(DEFAULT_DEBOUNCE_MS))
     }
 
     /// Create a watcher with a custom debounce duration.
-    pub fn with_debounce(root: &Path, debounce: Duration) -> WorkspaceResult<Self> {
-        Self::build(root, debounce, |_events| {})
+    pub fn with_debounce(root: &Path, debounce: Duration) -> WorkspaceResult<(Self, WatchHandle)> {
+        Self::build(root, debounce, |_events, _handle| {})
     }
 
     /// Create a watcher that calls `handler` with each debounced batch of events.
+    /// The handler also receives a `WatchHandle` so it can dynamically add new dirs.
     pub fn on_change(
         root: &Path,
-        handler: impl Fn(Vec<FileEvent>) + Send + 'static,
-    ) -> WorkspaceResult<Self> {
+        handler: impl Fn(Vec<FileEvent>, &WatchHandle) + Send + 'static,
+    ) -> WorkspaceResult<(Self, WatchHandle)> {
         Self::build(root, Duration::from_millis(DEFAULT_DEBOUNCE_MS), handler)
     }
 
     fn build(
         root: &Path,
         debounce: Duration,
-        handler: impl Fn(Vec<FileEvent>) + Send + 'static,
-    ) -> WorkspaceResult<Self> {
+        handler: impl Fn(Vec<FileEvent>, &WatchHandle) + Send + 'static,
+    ) -> WorkspaceResult<(Self, WatchHandle)> {
         let pending: Arc<Mutex<HashMap<PathBuf, FileEventKind>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let pending_tx = Arc::clone(&pending);
         let stop = Arc::new(Mutex::new(false));
         let stop_rx = Arc::clone(&stop);
 
-        let mut watcher = RecommendedWatcher::new(
-            move |res: Result<Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let kind = match event.kind {
-                        EventKind::Create(_) => FileEventKind::Created,
-                        EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
-                            FileEventKind::Renamed
-                        }
-                        EventKind::Modify(_) => FileEventKind::Modified,
-                        EventKind::Remove(_) => FileEventKind::Deleted,
-                        _ => return,
-                    };
-
-                    if let Ok(mut map) = pending_tx.lock() {
-                        for path in event.paths {
-                            if should_ignore(&path) {
-                                continue;
+        let watcher = Arc::new(Mutex::new(
+            RecommendedWatcher::new(
+                move |res: Result<Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        let kind = match event.kind {
+                            EventKind::Create(_) => FileEventKind::Created,
+                            EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
+                                FileEventKind::Renamed
                             }
-                            map.insert(path, kind);
+                            EventKind::Modify(_) => FileEventKind::Modified,
+                            EventKind::Remove(_) => FileEventKind::Deleted,
+                            _ => return,
+                        };
+
+                        if let Ok(mut map) = pending_tx.lock() {
+                            for path in event.paths {
+                                if should_ignore(&path) {
+                                    continue;
+                                }
+                                map.insert(path, kind);
+                            }
                         }
                     }
-                }
-            },
-            Config::default(),
-        )
-        .map_err(WorkspaceError::Watcher)?;
+                },
+                Config::default(),
+            )
+            .map_err(WorkspaceError::Watcher)?,
+        ));
 
         // Watch only gitignore-respected directories individually (NonRecursive),
         // avoiding the OS inotify limit that RecursiveMode::Recursive would hit.
         for dir in collect_watch_dirs(root) {
-            if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+            if let Err(e) = watcher.lock().unwrap().watch(&dir, RecursiveMode::NonRecursive) {
                 log::warn!("watcher: skipping {:?}: {}", dir, e);
             }
         }
+
+        let watch_handle = WatchHandle {
+            watcher: Arc::clone(&watcher),
+        };
+        let watch_handle_for_handler = watch_handle.clone();
 
         let debounce_handle = std::thread::spawn(move || loop {
             std::thread::sleep(debounce);
@@ -166,15 +196,18 @@ impl FileWatcher {
             };
 
             if !batch.is_empty() {
-                handler(batch);
+                handler(batch, &watch_handle_for_handler);
             }
         });
 
-        Ok(Self {
-            _watcher: watcher,
-            _debounce_handle: debounce_handle,
-            stop,
-        })
+        Ok((
+            Self {
+                watcher,
+                _debounce_handle: debounce_handle,
+                stop,
+            },
+            watch_handle,
+        ))
     }
 
     /// Stop the watcher and its debounce thread.
@@ -208,7 +241,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (tx, rx) = mpsc::channel();
 
-        let watcher = FileWatcher::on_change(tmp.path(), move |events| {
+        let (watcher, _handle) = FileWatcher::on_change(tmp.path(), move |events, _handle| {
             for e in events {
                 let _ = tx.send(e);
             }
