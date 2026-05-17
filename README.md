@@ -1,5 +1,7 @@
 crow-cli generated summary of crow-ui-ide-v2
 
+
+
 Alright, here's a good summary of what's going on with crow-ui-ide-v2:
 High-Level Architecture
 
@@ -7,7 +9,7 @@ It's a web-based IDE (VS Code-like) with a Rust backend + React frontend, commun
 Backend (Rust — crow-ui-server + workspace crates)
 
     crow-ui-server — Axum-based WebSocket server on port 3928. Handles IPC between frontend and all backend services.
-    crow-ui-acp — Agent Client Protocol integration. Spawns agent subprocesses (like crow-cli acp) and bridges stdio to WebSocket.
+    crow-ui-acp — Agent Client Protocol integration. Spawns agent subprocesses (lik crow-cli acp) and bridges stdio to WebSocket.
     crow-ui-terminal — Manages PTY terminals via portable-pty, broadcasts events to WebSocket clients.
     crow-ui-workspace — File tree, file ops, search, file watching (notify).
     crow-ui-db — SQLite persistence (recent projects, window state, layout, KV storage, history).
@@ -61,3 +63,9 @@ curl -X POST http://localhost:3928/api/acp/sessions/<session_id>/prompt \
 
 ## Cancel
 curl -X POST http://localhost:3928/api/acp/sessions/<session_id>/cancel
+
+
+There is no dirty indicator
+
+
+Nope. not working.

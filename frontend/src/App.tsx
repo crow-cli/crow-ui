@@ -44,6 +44,7 @@ import CommandPalette, { type Command } from "./components/CommandPalette";
 import SearchPane from "./components/SearchPane";
 import { FolderPicker } from "./components/FolderPicker";
 import BottomBar, { type ActivityId } from "./components/BottomBar";
+import { DirtyIndicator } from "./components/DirtyIndicator";
 // MenuBar replaced by CommandPalette
 import * as settings from "./lib/settings";
 import { ws } from "./lib/ws-client";
@@ -1307,17 +1308,16 @@ export default function App() {
             onRenderTab={(node: TabNode, renderValues: ITabRenderValues) => {
               renderValues.leading = getTabIcon(node.getName());
 
-              // Add dirty indicator for editor tabs with unsaved changes
+              // Dirty indicator for editor tabs — always reserves space so text doesn't shift on save
               if (node.getComponent() === "editor") {
                 const path = node.getConfig()?.path as string;
-                if (path && dirtyFiles.has(path)) {
-                  renderValues.content = (
-                    <span className="flex items-center gap-1.5">
-                      {renderValues.content}
-                      <span className="w-2 h-2 rounded-full bg-[var(--color-primary)] inline-block flex-shrink-0" />
-                    </span>
-                  );
-                }
+                const isDirty = !!(path && dirtyFiles.has(path));
+                renderValues.content = (
+                  <span className="flex items-center gap-1.5">
+                    <DirtyIndicator hidden={!isDirty} />
+                    {renderValues.content}
+                  </span>
+                );
               }
 
               // Wrap tab content in a context menu trigger for right-click split

@@ -2,9 +2,11 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ws } from "../lib/ws-client";
 import { fsApi } from "../lib/rpc";
 import { FileIcon } from "../lib/file-icons";
+import { cn } from "../lib/utils";
 import ContextMenu from "./ContextMenu";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
+import { DirtyIndicator } from "./DirtyIndicator";
 import * as settings from "../lib/settings";
 
 interface FileEntry {
@@ -516,9 +518,10 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
               : onFileClick(entry.path, false)
           }
           onContextMenu={(e) => handleContextMenu(e, entry.path, entry.isDir)}
-          className={`cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors ${
-            isDirty ? "text-[var(--color-primary)] font-medium" : "text-text-primary"
-          }`}
+          className={cn(
+            "cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors",
+            isDirty ? "text-primary font-medium" : "text-text-primary"
+          )}
           style={{
             paddingLeft: 8 + depth * 16,
             paddingRight: 8,
@@ -550,9 +553,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
               {entry.name}
             </span>
           )}
-          {isDirty && (
-            <span className="text-[8px] leading-none text-[var(--color-primary)] flex-shrink-0">●</span>
-          )}
+          {isDirty && <DirtyIndicator size="sm" />}
         </div>
         {entry.isDir &&
           expandedDirs.has(entry.path) &&

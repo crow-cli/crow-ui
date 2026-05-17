@@ -109,4 +109,4 @@
 
 - Timer on long running bash commands
 - Cancel/kill terminal button on long running bash commands
-- Proper state management if we are between a session/prompt and end_turn
+- Proper state management if we are between a session/prompt and end_turn or not
