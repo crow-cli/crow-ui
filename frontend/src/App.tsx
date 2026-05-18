@@ -40,9 +40,10 @@ import TerminalPane from "./components/TerminalPane";
 import ChatPane from "./components/ChatPane";
 import RpcLogPanel from "./components/RpcLogPanel";
 import SettingsPane from "./components/SettingsPane";
-import CommandPalette, { type Command } from "./components/CommandPalette";
+import AgentConfigPane from "./components/AgentConfigPane";
 import SearchPane from "./components/SearchPane";
 import { FolderPicker } from "./components/FolderPicker";
+import CommandPalette, { type Command } from "./components/CommandPalette";
 import BottomBar, { type ActivityId } from "./components/BottomBar";
 import { DirtyIndicator } from "./components/DirtyIndicator";
 // MenuBar replaced by CommandPalette
@@ -1028,6 +1029,30 @@ export default function App() {
           }
           break;
         }
+        case "agent_config": {
+          const model = layoutModelRef.current;
+          if (model) {
+            const node = model.getNodeById("agent-config-tab");
+            if (node) {
+              model.doAction(Actions.selectTab("agent-config-tab"));
+            } else {
+              model.doAction(
+                Actions.addTab(
+                  {
+                    type: "tab",
+                    id: "agent-config-tab",
+                    name: "Agent Config",
+                    component: "agent-config",
+                  },
+                  "editor-tabset",
+                  DockLocation.CENTER,
+                  -1,
+                ),
+              );
+            }
+          }
+          break;
+        }
       }
     },
     [saveFile, closeTab],
@@ -1061,6 +1086,7 @@ export default function App() {
       cmd("chat", "Open Agent Chat", "View", "chat", "Ctrl+L"),
       cmd("rpc-log", "Open ACP Log", "View", "rpc_log", "Ctrl+Shift+R"),
       cmd("settings", "Open Settings", "View", "settings"),
+      cmd("agent-config", "Agent Configuration", "ACP", "agent_config"),
     ];
   }, [handleMenuAction]);
 
@@ -1246,6 +1272,16 @@ export default function App() {
         return <RpcLogPanel />;
       case "settings":
         return <SettingsPane />;
+      case "agent-config":
+        return (
+          <AgentConfigPane
+            onClose={() => {
+              if (layoutModelRef.current) {
+                layoutModelRef.current.doAction(Actions.deleteTab(node.getId()));
+              }
+            }}
+          />
+        );
       default:
         return <div>Unknown component: {component}</div>;
     }

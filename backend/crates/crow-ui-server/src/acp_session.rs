@@ -54,6 +54,27 @@ pub enum PromptTurnState {
     },
 }
 
+/// A queued prompt message, owned by the backend.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedItem {
+    pub id: String,
+    pub text: String,
+    pub blocks: Vec<acp::ContentBlock>,
+}
+
+/// Behavior when sending a prompt while another is running.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptBehavior {
+    /// Append to queue, don't interrupt current turn.
+    AddToQueue,
+    /// Cancel current turn, run this prompt, preserve queue for after.
+    SkipQueueAndRun,
+    /// Cancel current turn, clear queue, run this prompt.
+    CancelAllAndRun,
+}
+
 /// A running ACP session owned by the backend.
 pub struct AcpSession {
     pub session_id: String,
@@ -71,6 +92,8 @@ pub struct AcpSession {
 
     /// Current prompt turn state — backend is source of truth.
     pub prompt_turn_state: Arc<Mutex<PromptTurnState>>,
+    /// Queued prompts — backend owns this so it survives refresh and syncs across tabs.
+    pub queued_items: Arc<Mutex<Vec<QueuedItem>>>,
 }
 
 /// Manager for multiple backend-owned ACP sessions.
@@ -178,6 +201,7 @@ impl AcpSession {
         });
 
         let prompt_turn_state = Arc::new(Mutex::new(PromptTurnState::Idle));
+        let queued_items = Arc::new(Mutex::new(Vec::new()));
 
         let mut session = Self {
             session_id: String::new(),
@@ -192,6 +216,7 @@ impl AcpSession {
             next_id: AtomicU64::new(1),
             _io_task: io_task,
             prompt_turn_state,
+            queued_items,
         };
 
         // ── ACP handshake ──
@@ -363,9 +388,27 @@ impl AcpSession {
         Ok(config_options)
     }
 
-    /// Send a prompt. Returns the full PromptResponse (including stopReason).
+    /// Send a prompt. Returns Ok when complete, Err on failure.
     /// Broadcasts prompt_state → running when dispatching and prompt_complete when done.
-    pub async fn prompt(&self, blocks: Vec<acp::ContentBlock>) -> Result<acp::PromptResponse> {
+    /// After completion, auto-drains the queue if items are waiting.
+    pub async fn prompt(&self, blocks: Vec<acp::ContentBlock>) -> Result<()> {
+        self.run_prompt(blocks).await.map(|_| ())
+    }
+
+    /// Core prompt runner — sets state, sends to agent, broadcasts result.
+    async fn run_prompt(&self, blocks: Vec<acp::ContentBlock>) -> Result<acp::PromptResponse> {
+        // Broadcast user message so frontend can display it in chat history.
+        let user_text = blocks.iter().filter_map(|b| {
+            if let acp::ContentBlock::Text(t) = b { Some(t.text.clone()) } else { None }
+        }).collect::<Vec<_>>().join("");
+        let _ = self.events_tx.send(SessionEvent::Update {
+            session_id: self.session_id.clone(),
+            update: serde_json::json!({
+                "sessionUpdate": "user_message_chunk",
+                "content": { "text": user_text },
+            }),
+        });
+
         {
             let mut state = self.prompt_turn_state.lock().await;
             *state = PromptTurnState::Running;
@@ -404,9 +447,172 @@ impl AcpSession {
         result
     }
 
+    /// Send a prompt with behavior control.
+    /// - If idle: runs immediately regardless of behavior.
+    /// - If running:
+    ///   - AddToQueue: appends to queue, returns Ok immediately.
+    ///   - SkipQueueAndRun: cancels current, runs this, preserves queue.
+    ///   - CancelAllAndRun: cancels current, clears queue, runs this.
+    pub async fn prompt_with_behavior(
+        &self,
+        blocks: Vec<acp::ContentBlock>,
+        behavior: PromptBehavior,
+    ) -> Result<()> {
+        let is_running = {
+            let state = self.prompt_turn_state.lock().await;
+            matches!(*state, PromptTurnState::Running)
+        };
+
+        if !is_running {
+            // Idle — run immediately, then auto-drain queue
+            self.run_prompt(blocks).await?;
+            self.drain_queue().await;
+            return Ok(());
+        }
+
+        // Currently running — behavior decides what to do
+        match behavior {
+            PromptBehavior::AddToQueue => {
+                let text = blocks.iter().filter_map(|b| {
+                    if let acp::ContentBlock::Text(t) = b { Some(t.text.clone()) } else { None }
+                }).collect::<Vec<_>>().join("");
+                let item = QueuedItem {
+                    id: format!("queue-{}-{}", self.session_id, self.next_id.fetch_add(1, Ordering::SeqCst)),
+                    text,
+                    blocks,
+                };
+                self.queue_push(item).await;
+                Ok(())
+            }
+            PromptBehavior::SkipQueueAndRun => {
+                self.cancel().await?;
+                self.run_prompt(blocks).await?;
+                self.drain_queue().await;
+                Ok(())
+            }
+            PromptBehavior::CancelAllAndRun => {
+                self.cancel().await?;
+                self.queue_clear().await;
+                self.run_prompt(blocks).await?;
+                self.drain_queue().await;
+                Ok(())
+            }
+        }
+    }
+
+    /// Auto-drain the queue when prompt completes.
+    /// Pops front item and runs it if any are waiting.
+    async fn drain_queue(&self) {
+        while let Some(item) = self.queue_pop().await {
+            eprintln!("[ACP SESSION] auto-draining queue item {}", item.id);
+            let _ = self.run_prompt(item.blocks).await;
+            // Loop continues — if more items were added during the prompt, they'll run too
+        }
+    }
+
     /// Subscribe to session events (updates, disconnects).
     pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
         self.events_tx.subscribe()
+    }
+
+    // ─── Queue management ─────────────────────────────────────────────────────
+
+    /// Get current queue items.
+    pub async fn get_queue(&self) -> Vec<QueuedItem> {
+        self.queued_items.lock().await.clone()
+    }
+
+    /// Add an item to the queue.
+    pub async fn queue_push(&self, item: QueuedItem) {
+        self.queued_items.lock().await.push(item);
+        self.broadcast_queue();
+    }
+
+    /// Remove an item from the queue by id.
+    pub async fn queue_remove(&self, id: &str) -> bool {
+        let mut q = self.queued_items.lock().await;
+        let before = q.len();
+        q.retain(|i| i.id != id);
+        let changed = q.len() != before;
+        drop(q);
+        if changed {
+            self.broadcast_queue();
+        }
+        changed
+    }
+
+    /// Update an item in the queue by id.
+    pub async fn queue_update(&self, id: &str, text: String, blocks: Vec<acp::ContentBlock>) -> bool {
+        let mut q = self.queued_items.lock().await;
+        if let Some(item) = q.iter_mut().find(|i| i.id == id) {
+            item.text = text;
+            item.blocks = blocks;
+            drop(q);
+            self.broadcast_queue();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clear the entire queue.
+    pub async fn queue_clear(&self) {
+        let mut q = self.queued_items.lock().await;
+        if !q.is_empty() {
+            q.clear();
+            drop(q);
+            self.broadcast_queue();
+        }
+    }
+
+    /// Pop the front item from the queue (returns None if empty).
+    pub async fn queue_pop(&self) -> Option<QueuedItem> {
+        let mut q = self.queued_items.lock().await;
+        let item = q.pop();
+        drop(q);
+        if item.is_some() {
+            self.broadcast_queue();
+        }
+        item
+    }
+
+    /// Reorder queue items (new order of ids).
+    pub async fn queue_reorder(&self, ids: Vec<String>) -> bool {
+        let mut q = self.queued_items.lock().await;
+        if q.len() != ids.len() {
+            return false;
+        }
+        let mut new_q = Vec::with_capacity(q.len());
+        for id in &ids {
+            if let Some(pos) = q.iter().position(|i| i.id == *id) {
+                new_q.push(q.remove(pos));
+            } else {
+                return false;
+            }
+        }
+        *q = new_q;
+        drop(q);
+        self.broadcast_queue();
+        true
+    }
+
+    fn broadcast_queue(&self) {
+        let session_id = self.session_id.clone();
+        let items = {
+            // We can't hold the lock across await, but this is sync so we just clone
+            if let Ok(q) = self.queued_items.try_lock() {
+                q.clone()
+            } else {
+                return; // Lock contended, skip broadcast
+            }
+        };
+        let _ = self.events_tx.send(SessionEvent::Update {
+            session_id,
+            update: serde_json::json!({
+                "sessionUpdate": "queue_changed",
+                "items": items,
+            }),
+        });
     }
 }
 

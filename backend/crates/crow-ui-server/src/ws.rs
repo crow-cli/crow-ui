@@ -41,6 +41,7 @@ pub async fn run_server(app: App, port: u16) {
         .route("/api/acp/sessions", post(create_session_handler))
         .route("/api/acp/sessions/:session_id/prompt", post(prompt_session_handler))
         .route("/api/acp/sessions/:session_id/cancel", post(cancel_session_handler))
+        .route("/api/acp/sessions/:session_id/queue", get(get_queue_handler).post(queue_action_handler))
         .with_state(app)
         // Fallback: serve embedded frontend files
         .fallback(get(serve_embedded));
@@ -782,6 +783,7 @@ async fn create_session_handler(
 /// HTTP handler: POST /api/acp/sessions/:session_id/prompt
 /// Sends prompt to backend-owned ACP session. Fire-and-forget: returns 202 immediately.
 /// Prompt lifecycle (started / complete / error) is broadcast by AcpSession::prompt().
+/// Body may include `behavior`: "add_to_queue" | "skip_queue_and_run" | "cancel_all_and_run"
 async fn prompt_session_handler(
     Path(session_id): Path<String>,
     State(app): State<App>,
@@ -809,13 +811,23 @@ async fn prompt_session_handler(
         None => vec![],
     };
 
+    let behavior = body
+        .get("behavior")
+        .and_then(|v| v.as_str())
+        .and_then(|s| match s {
+            "add_to_queue" => Some(crate::acp_session::PromptBehavior::AddToQueue),
+            "skip_queue_and_run" => Some(crate::acp_session::PromptBehavior::SkipQueueAndRun),
+            "cancel_all_and_run" => Some(crate::acp_session::PromptBehavior::CancelAllAndRun),
+            _ => None,
+        })
+        .unwrap_or(crate::acp_session::PromptBehavior::AddToQueue);
+
     drop(state);
 
-    // Background: AcpSession::prompt() broadcasts prompt_state → running and
-    // prompt_complete when the agent responds (or errors). No timeout — prompts
-    // can run for minutes while the agent uses tools.
+    // Background: AcpSession::prompt_with_behavior() handles queue logic and
+    // broadcasts prompt_state → running and prompt_complete when done.
     tokio::spawn(async move {
-        if let Err(e) = session.prompt(blocks).await {
+        if let Err(e) = session.prompt_with_behavior(blocks, behavior).await {
             eprintln!("[prompt background] prompt failed for session {session_id}: {e}");
         }
     });
@@ -849,6 +861,112 @@ async fn cancel_session_handler(
     });
 
     (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "cancelled" }))).into_response()
+}
+
+/// HTTP handler: GET /api/acp/sessions/:session_id/queue
+/// Returns current queue items.
+async fn get_queue_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+) -> impl IntoResponse {
+    let state = app.lock().await;
+    let session = match state.acp_sessions.get_session(&session_id).await {
+        Some(s) => s,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": format!("Session not found: {session_id}")
+            }))).into_response();
+        }
+    };
+
+    let items = session.get_queue().await;
+    (StatusCode::OK, Json(serde_json::json!({ "items": items }))).into_response()
+}
+
+/// HTTP handler: POST /api/acp/sessions/:session_id/queue
+/// Queue manipulation: add, remove, update, clear, reorder.
+/// Body: { "action": "add" | "remove" | "update" | "clear" | "reorder", ... }
+async fn queue_action_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let state = app.lock().await;
+    let session = match state.acp_sessions.get_session(&session_id).await {
+        Some(s) => s,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": format!("Session not found: {session_id}")
+            }))).into_response();
+        }
+    };
+
+    let action = body.get("action").and_then(|v| v.as_str()).unwrap_or("");
+
+    match action {
+        "add" => {
+            let text = body.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let blocks: Vec<acp::ContentBlock> = match body.get("blocks") {
+                Some(arr) => match serde_json::from_value(arr.clone()) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                            "error": format!("Invalid blocks: {e}")
+                        }))).into_response();
+                    }
+                },
+                None => vec![],
+            };
+            let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let item = crate::acp_session::QueuedItem { id, text, blocks };
+            session.queue_push(item).await;
+            (StatusCode::OK, Json(serde_json::json!({ "status": "added" }))).into_response()
+        }
+        "remove" => {
+            let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            session.queue_remove(id).await;
+            (StatusCode::OK, Json(serde_json::json!({ "status": "removed" }))).into_response()
+        }
+        "update" => {
+            let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let text = body.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let blocks: Vec<acp::ContentBlock> = match body.get("blocks") {
+                Some(arr) => match serde_json::from_value(arr.clone()) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                            "error": format!("Invalid blocks: {e}")
+                        }))).into_response();
+                    }
+                },
+                None => vec![],
+            };
+            session.queue_update(id, text, blocks).await;
+            (StatusCode::OK, Json(serde_json::json!({ "status": "updated" }))).into_response()
+        }
+        "clear" => {
+            session.queue_clear().await;
+            (StatusCode::OK, Json(serde_json::json!({ "status": "cleared" }))).into_response()
+        }
+        "reorder" => {
+            let ids: Vec<String> = match body.get("ids") {
+                Some(arr) => match serde_json::from_value(arr.clone()) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                            "error": format!("Invalid ids: {e}")
+                        }))).into_response();
+                    }
+                },
+                None => vec![],
+            };
+            session.queue_reorder(ids).await;
+            (StatusCode::OK, Json(serde_json::json!({ "status": "reordered" }))).into_response()
+        }
+        _ => (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": format!("Unknown action: {action}")
+        }))).into_response(),
+    }
 }
 
 /// Serve embedded frontend assets.

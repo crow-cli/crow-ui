@@ -169,6 +169,7 @@ function makeSuggestionConfig(
   openRef?: React.MutableRefObject<boolean>,
 ) {
   return {
+    char: "@",
     items: ({ query }: { query: string }) => {
       const allItems = getItems();
       const q = query.toLowerCase().trim();
@@ -695,22 +696,24 @@ export default function MessageEditor({
     <div className="px-3 py-2 border-t border-border shrink-0 backdrop-blur-md bg-surface">
       <div className="flex gap-2 items-end">
         <div
-          ref={editorRef}
           className={cn(
-            "flex-1 relative rounded-md text-text-primary text-[13px] outline-none min-h-[120px] max-h-[320px] overflow-y-auto backdrop-blur-sm bg-secondary border border-border",
+            "flex-1 rounded-md text-text-primary text-[13px] outline-none min-h-[120px] max-h-[320px] flex flex-col backdrop-blur-sm bg-secondary border border-border",
             disabled && "opacity-50 cursor-not-allowed"
           )}
           onClick={() => !disabled && editor.chain().focus().run()}
         >
-          <div className="px-2.5 py-1.5 pb-7">
+          <div
+            ref={editorRef}
+            className="flex-1 overflow-y-auto px-2.5 py-1.5"
+          >
             <EditorContent editor={editor} />
           </div>
 
           {/* Bottom bar: model selector (left) + send/cancel (right) */}
-          <div className="absolute bottom-1 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
+          <div className="shrink-0 flex items-center justify-between px-1.5 py-1">
             {/* Model selector */}
             {modelOptions.length > 0 && (
-              <div className="pointer-events-auto">
+              <div>
                 <select
                   value={selectedModel}
                   onChange={(e) => {
@@ -741,7 +744,7 @@ export default function MessageEditor({
             <Button
               variant={isStreaming && !hasEditorContent ? "destructive" : "default"}
               size="icon"
-              className="pointer-events-auto w-7 h-7 text-[13px]"
+              className="w-7 h-7 text-[13px]"
               disabled={disabled && !isStreaming}
               onClick={isStreaming && !hasEditorContent ? handleCancelClick : handleSendClick}
             >

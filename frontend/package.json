@@ -33,6 +33,7 @@
     "katex": "^0.16.45",
     "lucide-react": "^1.14.0",
     "monaco-editor": "^0.55.1",
+    "radix-ui": "^1.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "streamdown": "^2.5.0",

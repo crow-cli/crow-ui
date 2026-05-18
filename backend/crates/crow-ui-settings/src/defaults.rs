@@ -23,6 +23,7 @@ pub fn builtin_defaults() -> Value {
     add_output_defaults(&mut m);
     add_notebook_defaults(&mut m);
     add_language_specific_defaults(&mut m);
+    add_acp_defaults(&mut m);
     ins(&mut m, "workbench.colorTheme", json!("purple-dark"));
     Value::Object(m)
 }
@@ -739,6 +740,21 @@ fn add_language_specific_defaults(m: &mut Map<String, Value>) {
         json!({
             "editor.insertSpaces": false
         }),
+    );
+}
+
+fn add_acp_defaults(m: &mut Map<String, Value>) {
+    ins(
+        m,
+        "acp.agents",
+        json!([
+            {
+                "id": "crow-cli",
+                "name": "Crow CLI",
+                "command": "crow-cli",
+                "args": ["acp"]
+            }
+        ]),
     );
 }
 

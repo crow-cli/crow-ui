@@ -192,7 +192,6 @@ export class AcpClient {
       name: this.agentConfig.name,
       command: this.agentConfig.command,
       args: this.agentConfig.args || [],
-      env: this.agentConfig.env || [],
       cwd: this.cwd,
     });
     this.agentId = spawnResult.agentId as string;

@@ -33,10 +33,10 @@ export interface AcpNotification {
 }
 
 export interface AgentConfig {
+  id?: string;
   name: string;
   command: string;
   args?: string[];
-  env?: string[];
 }
 
 export interface SessionConfigOption {
@@ -65,6 +65,12 @@ export interface SessionInfo {
 
 // ─── Per-session state ─────────────────────────────────────────────────────
 
+export interface QueuedItem {
+  id: string;
+  text: string;
+  blocks: ContentBlock[];
+}
+
 interface SessionState {
   status: ConnectionStatus;
   promptTurnState: PromptTurnState;
@@ -77,6 +83,7 @@ interface SessionState {
   } | null;
   cwd: string;
   agentConfig: AgentConfig | null;
+  queuedItems: QueuedItem[];
 }
 
 // ─── Global state ──────────────────────────────────────────────────────────
@@ -136,7 +143,6 @@ export async function createSession(
       name: config.name,
       command: config.command,
       args: config.args || [],
-      env: config.env || [],
       cwd,
     }),
   });
@@ -170,6 +176,7 @@ export async function createSession(
     pendingPermission: null,
     cwd,
     agentConfig: config,
+    queuedItems: [],
   };
   sessions.set(sessionId, state);
 
@@ -244,6 +251,13 @@ export function handleSessionEvent(sessionId: string, update: unknown) {
     return;
   }
 
+  // Backend-owned queue state — update local copy without adding to notifications.
+  if (sessionUpdate === "queue_changed") {
+    const items = innerUpdate?.items || [];
+    setSessionState(sessionId, { queuedItems: items });
+    return;
+  }
+
   // Regular agent notification (chunk, tool call, plan, etc.) — append to list.
   const notification: AcpNotification = {
     id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -305,6 +319,7 @@ export function getSession(sessionId: string): SessionState {
       pendingPermission: null,
       cwd: "",
       agentConfig: null,
+      queuedItems: [],
     }
   );
 }
@@ -329,37 +344,17 @@ export function getTerminalId(_toolCallId: string, _sessionId?: string): string 
 
 // ─── Actions ───────────────────────────────────────────────────────────────
 
-export async function prompt(sessionId: string, blocks: ContentBlock[]) {
-  // Add user message to local notifications FIRST so it appears before agent response
-  const userText = blocks
-    .map((b) =>
-      b.type === "text" ? b.text : b.type === "image" ? "[Image]" : "[File]",
-    )
-    .join("");
-  if (userText) {
-    const state = sessions.get(sessionId);
-    if (state) {
-      const notification: AcpNotification = {
-        id: `user-msg-${Date.now()}`,
-        type: "session_notification",
-        data: {
-          update: {
-            sessionUpdate: "user_message_chunk",
-            content: { text: userText },
-          },
-        },
-      };
-      state.notifications = [...state.notifications, notification];
-      notifySession(sessionId);
-    }
-  }
-
+export async function prompt(
+  sessionId: string,
+  blocks: ContentBlock[],
+  behavior: "add_to_queue" | "skip_queue_and_run" | "cancel_all_and_run" = "add_to_queue",
+) {
   const response = await fetch(
     `/api/acp/sessions/${encodeURIComponent(sessionId)}/prompt`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks }),
+      body: JSON.stringify({ blocks, behavior }),
     },
   );
   if (!response.ok) {
@@ -373,6 +368,103 @@ export async function cancel(sessionId: string) {
     `/api/acp/sessions/${encodeURIComponent(sessionId)}/cancel`,
     {
       method: "POST",
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+}
+
+// ─── Queue management (backend-owned) ──────────────────────────────────────
+
+export async function getQueue(sessionId: string): Promise<QueuedItem[]> {
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  return data.items || [];
+}
+
+export async function queueAdd(
+  sessionId: string,
+  item: { id: string; text: string; blocks: ContentBlock[] },
+) {
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "add", ...item }),
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+}
+
+export async function queueRemove(sessionId: string, id: string) {
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove", id }),
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+}
+
+export async function queueUpdate(
+  sessionId: string,
+  id: string,
+  text: string,
+  blocks: ContentBlock[],
+) {
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update", id, text, blocks }),
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+}
+
+export async function queueClear(sessionId: string) {
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clear" }),
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+}
+
+export async function queueReorder(sessionId: string, ids: string[]) {
+  const response = await fetch(
+    `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reorder", ids }),
     },
   );
   if (!response.ok) {
