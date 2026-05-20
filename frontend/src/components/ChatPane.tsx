@@ -72,7 +72,10 @@ export default function ChatPane({
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const prevNotifLen = useRef(0);
+  const isNearBottomRef = useRef(true);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
   const effectiveSessionId = sessionId || localSessionId;
   const activeSessionId = effectiveSessionId || "disconnected";
@@ -122,10 +125,26 @@ export default function ChatPane({
     };
   }, [effectiveSessionId]);
 
-  // Auto-scroll on new notifications
+  // Track scroll position to determine if user is near bottom
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const threshold = 80; // px from bottom
+    const nearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      threshold;
+    isNearBottomRef.current = nearBottom;
+    if (nearBottom) setShowJumpToBottom(false);
+  }, []);
+
+  // Auto-scroll on new notifications — only if user was near bottom
   useEffect(() => {
     if (notifications.length > prevNotifLen.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (isNearBottomRef.current) {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      } else {
+        setShowJumpToBottom(true);
+      }
     }
     prevNotifLen.current = notifications.length;
   }, [notifications.length]);
@@ -416,8 +435,10 @@ export default function ChatPane({
       )}
 
       <div
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
         data-testid="chat-messages"
-        className="chat-messages flex-1 overflow-y-auto py-3 flex flex-col gap-2 min-h-0"
+        className="chat-messages flex-1 overflow-y-auto py-3 flex flex-col gap-2 min-h-0 relative"
       >
         {messageGroups.length === 0 && (
           <div className="text-center text-text-secondary text-sm mt-10">
@@ -436,6 +457,24 @@ export default function ChatPane({
         ))}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Jump to bottom button */}
+      {showJumpToBottom && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="text-[11px] shadow-lg bg-surface border border-border hover:bg-hover"
+            onClick={() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              setShowJumpToBottom(false);
+              isNearBottomRef.current = true;
+            }}
+          >
+            New messages ↓
+          </Button>
+        </div>
+      )}
 
       {/* Queue management UI */}
       {queuedItems.length > 0 && (

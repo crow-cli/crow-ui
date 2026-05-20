@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use agent_client_protocol_schema as acp;
 
@@ -94,6 +94,10 @@ pub struct AcpSession {
     pub prompt_turn_state: Arc<Mutex<PromptTurnState>>,
     /// Queued prompts — backend owns this so it survives refresh and syncs across tabs.
     pub queued_items: Arc<Mutex<Vec<QueuedItem>>>,
+    /// Terminal manager for killing active terminals on cancel.
+    terminals: Arc<crow_ui_acp::terminals::AcpTerminalManager>,
+    /// Active terminal IDs created by this session during current prompt turn.
+    pub active_terminals: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 /// Manager for multiple backend-owned ACP sessions.
@@ -172,6 +176,8 @@ impl AcpSession {
         let session_id_cell_clone = session_id_cell.clone();
         let stdin_tx_clone = stdin_tx.clone();
         let terminals_clone = agent_manager.terminals.clone();
+        let active_terminals = Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let active_terminals_for_io = active_terminals.clone();
 
         let io_task = tokio::spawn(async move {
             loop {
@@ -184,6 +190,7 @@ impl AcpSession {
                             &session_id_cell_clone,
                             &stdin_tx_clone,
                             &terminals_clone,
+                            &active_terminals_for_io,
                         )
                         .await
                         {
@@ -202,6 +209,7 @@ impl AcpSession {
 
         let prompt_turn_state = Arc::new(Mutex::new(PromptTurnState::Idle));
         let queued_items = Arc::new(Mutex::new(Vec::new()));
+        let terminals = agent_manager.terminals.clone();
 
         let mut session = Self {
             session_id: String::new(),
@@ -217,6 +225,8 @@ impl AcpSession {
             _io_task: io_task,
             prompt_turn_state,
             queued_items,
+            terminals,
+            active_terminals,
         };
 
         // ── ACP handshake ──
@@ -362,6 +372,19 @@ impl AcpSession {
             *state = PromptTurnState::Cancelled;
         }
         self.broadcast_prompt_state(PromptTurnState::Cancelled);
+
+        // Kill all active terminals for this session — the agent is likely blocked
+        // waiting for terminal/waitForExit and can't process session/cancel until we respond.
+        let terminals_to_kill: Vec<String> = {
+            let mut active = self.active_terminals.lock().await;
+            let ids: Vec<String> = active.drain().collect();
+            ids
+        };
+        for term_id in terminals_to_kill {
+            info!("Killing terminal {} for cancelled session {}", term_id, self.session_id);
+            self.terminals.kill_terminal(&term_id).await;
+        }
+
         let notif = acp::CancelNotification::new(acp::SessionId::new(self.session_id.clone()));
         self.notify("session/cancel", notif).await
     }
@@ -397,6 +420,12 @@ impl AcpSession {
 
     /// Core prompt runner — sets state, sends to agent, broadcasts result.
     async fn run_prompt(&self, blocks: Vec<acp::ContentBlock>) -> Result<acp::PromptResponse> {
+        // Clear any stale active terminals from previous turns
+        {
+            let mut active = self.active_terminals.lock().await;
+            active.clear();
+        }
+
         // Broadcast user message so frontend can display it in chat history.
         let user_text = blocks.iter().filter_map(|b| {
             if let acp::ContentBlock::Text(t) = b { Some(t.text.clone()) } else { None }
@@ -420,6 +449,12 @@ impl AcpSession {
             blocks,
         );
         let result = self.request_no_timeout::<_, acp::PromptResponse>("session/prompt", req).await;
+
+        // Clear active terminals when turn ends (they either exited or we cancelled)
+        {
+            let mut active = self.active_terminals.lock().await;
+            active.clear();
+        }
 
         match &result {
             Ok(resp) => {
@@ -625,6 +660,7 @@ async fn handle_agent_line(
     session_id_cell: &Mutex<String>,
     stdin_tx: &mpsc::Sender<String>,
     terminals: &Arc<crow_ui_acp::terminals::AcpTerminalManager>,
+    active_terminals: &Arc<Mutex<std::collections::HashSet<String>>>,
 ) -> Result<()> {
     eprintln!("[ACP RAW] {}", line);
     let val: Value = serde_json::from_str(line).context("parse agent line")?;
@@ -650,20 +686,29 @@ async fn handle_agent_line(
     if let (Some(id), Some(method)) = (val.get("id").and_then(|v| v.as_u64()), val.get("method").and_then(|m| m.as_str())) {
         let params = val.get("params").cloned().unwrap_or(Value::Null);
         eprintln!("[ACP REQUEST] id={} method={} params={}", id, method, params);
-        let result = handle_agent_request(method, params, terminals).await;
-        let response = match result {
-            Ok(res) => {
-                eprintln!("[ACP REQUEST] id={} method={} OK result={}", id, method, res);
-                serde_json::json!({"jsonrpc": "2.0", "id": id, "result": res})
+        let session_id = session_id_cell.lock().await.clone();
+        // Spawn request handling as a separate task so the I/O loop keeps reading.
+        // This allows concurrent requests (e.g., terminal/kill while terminal/waitForExit is pending).
+        let terminals = terminals.clone();
+        let active_terminals = active_terminals.clone();
+        let stdin_tx = stdin_tx.clone();
+        let method = method.to_string();
+        tokio::spawn(async move {
+            let result = handle_agent_request(&method, params, &terminals, &active_terminals, &session_id).await;
+            let response = match result {
+                Ok(res) => {
+                    eprintln!("[ACP REQUEST] id={} method={} OK result={}", id, method, res);
+                    serde_json::json!({"jsonrpc": "2.0", "id": id, "result": res})
+                }
+                Err(err) => {
+                    eprintln!("[ACP REQUEST] id={} method={} ERROR: {}", id, method, err);
+                    serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32600, "message": err}})
+                }
+            };
+            if let Err(e) = stdin_tx.send(response.to_string()).await {
+                eprintln!("[ACP REQUEST] id={} FAILED TO SEND RESPONSE: {}", id, e);
             }
-            Err(err) => {
-                eprintln!("[ACP REQUEST] id={} method={} ERROR: {}", id, method, err);
-                serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32600, "message": err}})
-            }
-        };
-        if let Err(e) = stdin_tx.send(response.to_string()).await {
-            eprintln!("[ACP REQUEST] id={} FAILED TO SEND RESPONSE: {}", id, e);
-        }
+        });
         return Ok(());
     }
 
@@ -701,6 +746,8 @@ async fn handle_agent_request(
     method: &str,
     params: Value,
     terminals: &Arc<crow_ui_acp::terminals::AcpTerminalManager>,
+    active_terminals: &Mutex<std::collections::HashSet<String>>,
+    session_id: &str,
 ) -> Result<Value, String> {
     match method {
         "fs/readTextFile" | "fs/read_text_file" => {
@@ -738,9 +785,15 @@ async fn handle_agent_request(
                 .unwrap_or_default();
             let cwd = params.get("cwd").and_then(|v| v.as_str());
             let output_byte_limit = params.get("outputByteLimit").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let timeout_ms = params.get("timeoutMs").and_then(|v| v.as_u64());
+            // Default 60s timeout so agents can't accidentally leave terminals hanging forever.
+            let timeout_ms = timeout_ms.or(Some(60_000));
 
-            match terminals.create_terminal(command, &args, &env, cwd, output_byte_limit).await {
-                Ok(id) => Ok(serde_json::json!({"terminalId": id})),
+            match terminals.create_terminal(command, &args, &env, cwd, output_byte_limit, timeout_ms, Some(session_id.to_string())).await {
+                Ok(id) => {
+                    active_terminals.lock().await.insert(id.clone());
+                    Ok(serde_json::json!({"terminalId": id}))
+                }
                 Err(e) => Err(format!("failed to create terminal: {e}")),
             }
         }
@@ -756,7 +809,7 @@ async fn handle_agent_request(
         }
         "terminal/waitForExit" | "terminal/wait_for_exit" => {
             let id = params.get("terminalId").and_then(|v| v.as_str()).ok_or("missing terminalId")?;
-            // Poll until terminal exits
+            // Poll until terminal exits. Return immediately if killed (timeout or cancel).
             loop {
                 match terminals.terminal_info(id).await {
                     Some((exited, exit_code, signal)) => {
@@ -766,6 +819,8 @@ async fn handle_agent_request(
                                 "signal": signal,
                             }));
                         }
+                        // Check if we should still be waiting — terminal may have been killed
+                        // but the exited flag hasn't propagated yet. Short sleep to avoid tight loop.
                     }
                     None => return Err("terminal not found".into()),
                 }

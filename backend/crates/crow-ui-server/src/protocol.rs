@@ -714,6 +714,8 @@ pub struct AcpCreateTerminalRequest {
     pub env: Vec<AcpEnvVar>,
     #[serde(default)]
     pub output_byte_limit: Option<usize>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, TS)]

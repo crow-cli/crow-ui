@@ -1,0 +1,270 @@
+@import "flexlayout-react/style/light.css";
+
+/* ─── FlexLayout Dark Theme Overrides ─────────────────────────────────────── */
+
+.flexlayout__layout {
+  --color-background: #1e1e2e;
+  --color-foreground: #cdd6f4;
+  --color-border: #313244;
+  --color-tabset-background: #181825;
+  --color-tabset-foreground: #cdd6f4;
+  --color-tabset-header-background: #11111b;
+  --color-tabset-header-foreground: #6c7086;
+  --color-tab-background: #181825;
+  --color-tab-foreground: #6c7086;
+  --color-tab-selected-background: #1e1e2e;
+  --color-tab-selected-foreground: #cdd6f4;
+  --color-splitter: #313244;
+  --color-splitter-drag: #585b70;
+  --color-splitter-hover: #45475a;
+  --color-border-background: #181825;
+  --color-border-foreground: #6c7086;
+  --color-popup-menu-background: #181825;
+  --color-popup-menu-foreground: #cdd6f4;
+  --color-popup-menu-border: #313244;
+  --color-popup-menu-selected-background: #313244;
+  --color-popup-menu-selected-foreground: #cdd6f4;
+  --color-toolbar-background: #181825;
+  --color-toolbar-foreground: #6c7086;
+  --color-drag-rect-background: #1e1e2e;
+  --color-drag-rect-border: #585b70;
+  --color-drag-rect-foreground: #cdd6f4;
+  --font-size: 13px;
+  --font-family: system-ui, -apple-system, sans-serif;
+}
+
+.flexlayout__layout {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+.flexlayout__tabset {
+  background-color: var(--color-tabset-background);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.flexlayout__tabset_header {
+  background-color: var(--color-tabset-header-background);
+  color: var(--color-tabset-header-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+}
+
+.flexlayout__tab {
+  background-color: var(--color-tab-background);
+  color: var(--color-tab-foreground);
+}
+
+.flexlayout__tab_button {
+  background-color: var(--color-tab-background);
+  color: var(--color-tab-foreground);
+  padding: 4px 10px;
+  font-size: 12px;
+  border: none;
+  cursor: pointer;
+}
+
+.flexlayout__tab_button--selected {
+  background-color: var(--color-tab-selected-background);
+  color: var(--color-tab-selected-foreground);
+  border-top: 2px solid #89b4fa;
+}
+
+.flexlayout__tab_button:hover {
+  background-color: var(--color-tab-selected-background);
+}
+
+.flexlayout__tab_button_leading {
+  margin-right: 4px;
+}
+
+.flexlayout__tab_button_trailing {
+  margin-left: 4px;
+  opacity: 0.5;
+}
+
+.flexlayout__tab_button_trailing:hover {
+  opacity: 1;
+}
+
+.flexlayout__splitter {
+  background-color: var(--color-splitter);
+}
+
+.flexlayout__splitter:hover {
+  background-color: var(--color-splitter-hover);
+}
+
+.flexlayout__splitter_drag {
+  background-color: var(--color-splitter-drag);
+}
+
+.flexlayout__border {
+  background-color: var(--color-border-background);
+}
+
+.flexlayout__border_button {
+  background-color: var(--color-border-background);
+  color: var(--color-border-foreground);
+  padding: 6px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.flexlayout__border_button--selected {
+  background-color: var(--color-tab-selected-background);
+  color: var(--color-tab-selected-foreground);
+  border-bottom: 2px solid #89b4fa;
+}
+
+.flexlayout__border_top,
+.flexlayout__border_bottom,
+.flexlayout__border_left,
+.flexlayout__border_right {
+  background-color: var(--color-border-background);
+}
+
+.flexlayout__border_inner_tab_container {
+  background-color: var(--color-tabset-background);
+}
+
+.flexlayout__border_inner_tab_container_bottom,
+.flexlayout__border_inner_tab_container_top,
+.flexlayout__border_inner_tab_container_left,
+.flexlayout__border_inner_tab_container_right {
+  background-color: var(--color-tabset-background);
+}
+
+.flexlayout__border_toolbar {
+  background-color: var(--color-toolbar-background);
+}
+
+.flexlayout__border_toolbar_button {
+  color: var(--color-toolbar-foreground);
+}
+
+.flexlayout__popup_menu {
+  background-color: var(--color-popup-menu-background);
+  color: var(--color-popup-menu-foreground);
+  border: 1px solid var(--color-popup-menu-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.flexlayout__popup_menu_item {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.flexlayout__popup_menu_item:hover {
+  background-color: var(--color-popup-menu-selected-background);
+  color: var(--color-popup-menu-selected-foreground);
+}
+
+.flexlayout__popup_menu_container {
+  border-radius: 6px;
+}
+
+.flexlayout__tabset-selected {
+  background-image: none;
+}
+
+.flexlayout__tabset-maximized {
+  background-image: none;
+}
+
+/* ─── Explorer Pane ──────────────────────────────────────────────────────── */
+
+.explorer-pane {
+  padding: 8px 0;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.explorer-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #cdd6f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.explorer-item:hover {
+  background-color: #313244;
+}
+
+.explorer-item--dir {
+  font-weight: 500;
+}
+
+.explorer-item--file {
+  color: #a6adc8;
+}
+
+.explorer-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+/* ─── Editor Pane ────────────────────────────────────────────────────────── */
+
+.editor-pane {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.editor-pane--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6c7086;
+  font-size: 13px;
+}
+
+/* ─── Welcome Pane ───────────────────────────────────────────────────────── */
+
+.welcome-pane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  color: #6c7086;
+}
+
+.welcome-pane h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.welcome-pane p {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* ─── Terminal Pane ──────────────────────────────────────────────────────── */
+
+.terminal-pane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6c7086;
+  font-size: 13px;
+}

@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use crow_ui_terminal::{PtyProcess, PtySpawnConfig, TerminalSize};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::info;
 
 const DEFAULT_OUTPUT_LIMIT: usize = 64 * 1024;
 const DEFAULT_COLS: u16 = 80;
@@ -41,6 +41,8 @@ pub struct AcpTerminal {
     pub exit_code: Option<i32>,
     pub exit_signal: Option<String>,
     pub event_tx: tokio::sync::broadcast::Sender<AcpTerminalEvent>,
+    /// Which ACP session created this terminal (for cleanup on cancel).
+    pub session_id: Option<String>,
 }
 
 impl AcpTerminal {
@@ -106,6 +108,8 @@ impl AcpTerminalManager {
         env: &[(String, String)],
         cwd: Option<&str>,
         output_byte_limit: Option<usize>,
+        timeout_ms: Option<u64>,
+        session_id: Option<String>,
     ) -> Result<String> {
         let id = {
             let mut next = self.inner.next_id.lock().await;
@@ -137,7 +141,7 @@ impl AcpTerminalManager {
             cols: DEFAULT_COLS,
         };
 
-        let mut config = PtySpawnConfig {
+        let config = PtySpawnConfig {
             shell: Some(shell),
             args: Some(vec!["-c".to_string(), cmd_str.clone()]),
             cwd: cwd.map(PathBuf::from),
@@ -145,13 +149,13 @@ impl AcpTerminalManager {
             size,
         };
 
-        let mut pty = PtyProcess::spawn(&config)
+        let pty = PtyProcess::spawn(&config)
             .with_context(|| format!("Failed to spawn PTY for '{}'", command))?;
 
         let limit = output_byte_limit.unwrap_or(DEFAULT_OUTPUT_LIMIT);
 
         // Set up output callback
-        let terminal_id = id.clone();
+        let _terminal_id = id.clone();
         let global_tx = self.inner.global_tx.clone();
 
         // We need to capture output and also forward it
@@ -169,11 +173,46 @@ impl AcpTerminalManager {
             exit_code: None,
             exit_signal: None,
             event_tx: tokio::sync::broadcast::Sender::new(64),
+            session_id: session_id.clone(),
         }));
 
         {
             let mut terminals = self.inner.terminals.lock().await;
             terminals.insert(id.clone(), terminal.clone());
+        }
+
+        // Spawn timeout task if requested
+        if let Some(timeout_ms) = timeout_ms {
+            let term_id = id.clone();
+            let inner = self.inner.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)).await;
+                let terminals = inner.terminals.lock().await;
+                if let Some(term) = terminals.get(&term_id) {
+                    let mut t = term.lock().await;
+                    if !t.exited {
+                        info!("Terminal {} timed out after {}ms, killing", term_id, timeout_ms);
+                        if let Some(ref pty) = t.pty {
+                            let _ = pty.kill_tree();
+                        }
+                        t.exited = true;
+                        t.exit_signal = Some("timeout".to_string());
+                        let exit_code = t.exit_code;
+                        let signal = t.exit_signal.clone();
+                        drop(t);
+                        let _ = term.lock().await.event_tx.send(AcpTerminalEvent::Exit {
+                            terminal_id: term_id.clone(),
+                            exit_code,
+                            signal: signal.clone(),
+                        });
+                        let _ = inner.global_tx.send(AcpTerminalEvent::Exit {
+                            terminal_id: term_id.clone(),
+                            exit_code,
+                            signal,
+                        });
+                    }
+                }
+            });
         }
 
         // Spawn a task to poll the PTY output and detect exit
@@ -221,26 +260,28 @@ impl AcpTerminalManager {
 
                 if exited {
                     let mut t = terminal.lock().await;
-                    t.exited = true;
-                    t.exit_code = t.pty.as_ref().and_then(|p| p.exit_code());
-                    #[cfg(unix)]
-                    {
-                        t.exit_signal = None;
-                    }
-                    let exit_code = t.exit_code;
-                    let exit_signal = t.exit_signal.clone();
-                    drop(t);
+                    if !t.exited {
+                        t.exited = true;
+                        t.exit_code = t.pty.as_ref().and_then(|p| p.exit_code());
+                        // Only clear signal on natural exit; preserve timeout/SIGKILL.
+                        if t.exit_signal.is_none() {
+                            t.exit_signal = None;
+                        }
+                        let exit_code = t.exit_code;
+                        let exit_signal = t.exit_signal.clone();
+                        drop(t);
 
-                    let _ = terminal.lock().await.event_tx.send(AcpTerminalEvent::Exit {
-                        terminal_id: term_id.clone(),
-                        exit_code,
-                        signal: exit_signal.clone(),
-                    });
-                    let _ = global_tx2.send(AcpTerminalEvent::Exit {
-                        terminal_id: term_id.clone(),
-                        exit_code,
-                        signal: exit_signal,
-                    });
+                        let _ = terminal.lock().await.event_tx.send(AcpTerminalEvent::Exit {
+                            terminal_id: term_id.clone(),
+                            exit_code,
+                            signal: exit_signal.clone(),
+                        });
+                        let _ = global_tx2.send(AcpTerminalEvent::Exit {
+                            terminal_id: term_id.clone(),
+                            exit_code,
+                            signal: exit_signal,
+                        });
+                    }
                     break;
                 }
             }
@@ -307,6 +348,20 @@ impl AcpTerminalManager {
                 }
                 t.exited = true;
                 t.exit_code = t.pty.as_ref().and_then(|p| p.exit_code());
+                t.exit_signal = Some("SIGKILL".to_string());
+                let exit_code = t.exit_code;
+                let signal = t.exit_signal.clone();
+                drop(t);
+                let _ = term.lock().await.event_tx.send(AcpTerminalEvent::Exit {
+                    terminal_id: id.to_string(),
+                    exit_code,
+                    signal: signal.clone(),
+                });
+                let _ = self.inner.global_tx.send(AcpTerminalEvent::Exit {
+                    terminal_id: id.to_string(),
+                    exit_code,
+                    signal,
+                });
             }
             true
         } else {

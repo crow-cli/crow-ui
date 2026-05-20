@@ -574,7 +574,7 @@ pub async fn handle_acp_write_file(state: &AppState, req: AcpWriteFileRequest) -
 pub async fn handle_acp_create_terminal(state: &AppState, req: AcpCreateTerminalRequest) -> Result<AcpCreateTerminalResponse, String> {
     let env: Vec<(String, String)> = req.env.into_iter().map(|e| (e.name, e.value)).collect();
     let terminal_id = state.agents.terminals
-        .create_terminal(&req.command, &req.args, &env, req.cwd.as_deref(), req.output_byte_limit)
+        .create_terminal(&req.command, &req.args, &env, req.cwd.as_deref(), req.output_byte_limit, req.timeout_ms, None)
         .await
         .map_err(|e| format!("Failed to create terminal: {e}"))?;
 
