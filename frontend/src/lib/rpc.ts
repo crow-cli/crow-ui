@@ -97,19 +97,6 @@ import type {
   GetExplorerStateRequest,
   GetExplorerStateResponse,
   SaveExplorerStateRequest,
-  SaveExplorerStateResponse,
-  GetTileStatesRequest,
-  GetTileStatesResponse,
-  SaveTileStateRequest,
-  SaveTileStateResponse,
-  DeleteTileStateRequest,
-  DeleteTileStateResponse,
-  ClearTileStatesRequest,
-  ClearTileStatesResponse,
-  GetFileBeforeContentRequest,
-  GetFileBeforeContentResponse,
-  GetFileChangeRequest,
-  GetFileChangeResponse,
 } from "../bindings";
 
 // ─── Helper ────────────────────────────────────────────────────────────────
@@ -239,36 +226,6 @@ export const fsApi = {
 };
 
 // ─── ACP API ───────────────────────────────────────────────────────────────
-
-export const explorerApi = {
-  getState: (req?: GetExplorerStateRequest): Promise<GetExplorerStateResponse> =>
-    invoke("get_explorer_state", req ?? {}),
-
-  saveState: (req: SaveExplorerStateRequest): Promise<SaveExplorerStateResponse> =>
-    invoke("save_explorer_state", req),
-};
-
-export const tileApi = {
-  getStates: (req?: GetTileStatesRequest): Promise<GetTileStatesResponse> =>
-    invoke("get_tile_states", req ?? {}),
-
-  saveState: (req: SaveTileStateRequest): Promise<SaveTileStateResponse> =>
-    invoke("save_tile_state", req),
-
-  deleteState: (req: DeleteTileStateRequest): Promise<DeleteTileStateResponse> =>
-    invoke("delete_tile_state", req),
-
-  clearStates: (req?: ClearTileStatesRequest): Promise<ClearTileStatesResponse> =>
-    invoke("clear_tile_states", req ?? {}),
-};
-
-export const worktreeApi = {
-  getFileBeforeContent: (req: GetFileBeforeContentRequest): Promise<GetFileBeforeContentResponse> =>
-    invoke("get_file_before_content", req),
-
-  getFileChange: (req: GetFileChangeRequest): Promise<GetFileChangeResponse> =>
-    invoke("get_file_change", req),
-};
 
 export const acpApi = {
   spawn: (req: AcpSpawnRequest): Promise<AcpSpawnResponse> =>

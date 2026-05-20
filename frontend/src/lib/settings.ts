@@ -256,7 +256,7 @@ export async function addRecentlyOpened(dir: string): Promise<void> {
 }
 
 /** Get recently opened workspaces from backend SQLite */
-export async function getRecentWorkspaces(limit = 10): Promise<string[]> {
+async function getRecentWorkspaces(limit = 10): Promise<string[]> {
   try {
     const { entries } = await workspaceApi.getRecent({ limit });
     return entries.map((e) => e.path);
@@ -267,7 +267,7 @@ export async function getRecentWorkspaces(limit = 10): Promise<string[]> {
 }
 
 /** Clear recently opened list — delegates to backend SQLite */
-export async function clearRecentlyOpened(): Promise<void> {
+async function clearRecentlyOpened(): Promise<void> {
   console.warn("clearRecentlyOpened not yet implemented for SQLite backend");
 }
 
@@ -276,7 +276,7 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
-export function isIntellisenseDisabled(languageId: string): boolean {
+function isIntellisenseDisabled(languageId: string): boolean {
   const s = getSettings().intellisense;
   if (!s.enabled) return true;
   return s.disabledLanguages.includes(languageId);
@@ -304,7 +304,7 @@ export function getConfigPath(): string | null {
   return null; // No longer managed by frontend
 }
 
-export function getLanguageOverrides(
+function getLanguageOverrides(
   languageId: string,
 ): Partial<EditorSettings> {
   return getSettings().languages[languageId] || {};
@@ -321,6 +321,6 @@ export async function resetSettings(): Promise<void> {
   }
 }
 
-export async function saveSettings(): Promise<void> {
+async function saveSettings(): Promise<void> {
   // No-op — backend persists automatically on updateSetting
 }

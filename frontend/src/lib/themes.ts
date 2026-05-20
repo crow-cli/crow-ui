@@ -119,7 +119,7 @@ export interface IdeTheme {
 
 // ─── Purple Dark (current default) ──────────────────────────────────────────
 
-export const purpleDark: IdeTheme = {
+const purpleDark: IdeTheme = {
   name: "Purple Dark",
   kind: "dark",
   surface: {
@@ -180,7 +180,7 @@ export const purpleDark: IdeTheme = {
 
 // ─── Ocean Dark (alternative) ───────────────────────────────────────────────
 
-export const oceanDark: IdeTheme = {
+const oceanDark: IdeTheme = {
   name: "Ocean Dark",
   kind: "dark",
   surface: {
@@ -248,10 +248,6 @@ const THEMES: Record<string, IdeTheme> = {
 
 export function getTheme(name: string): IdeTheme {
   return THEMES[name] ?? purpleDark;
-}
-
-export function listThemes(): string[] {
-  return Object.keys(THEMES);
 }
 
 // ─── CSS Injection ──────────────────────────────────────────────────────────
@@ -384,7 +380,7 @@ function themeToCss(theme: IdeTheme): string {
 // ─── Runtime CSS Variable Helpers ───────────────────────────────────────────
 
 /** Read a CSS custom property from :root */
-export function getThemeVar(name: string, fallback: string = ""): string {
+function getThemeVar(name: string, fallback: string = ""): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 

@@ -22,7 +22,7 @@ export function debugError(...args: any[]) {
   }
 }
 
-export function debugWarn(...args: any[]) {
+function debugWarn(...args: any[]) {
   if (DEBUG_ENABLED) {
     console.warn("[debug]", ...args);
   }

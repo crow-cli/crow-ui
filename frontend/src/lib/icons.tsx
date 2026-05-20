@@ -68,7 +68,7 @@ export function IconRpc({ size = 20, color = "currentColor" }: IconProps) {
   );
 }
 
-export function IconSettings({ size = 18, color = "currentColor" }: IconProps) {
+function IconSettings({ size = 18, color = "currentColor" }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />

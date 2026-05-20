@@ -113,7 +113,7 @@ export function FileIcon({ name, isDir = false, size = 14 }: FileIconProps) {
 }
 
 // Simple string icon for use in plain text contexts
-export function getFileIcon(name: string, isDir = false): string {
+function getFileIcon(name: string, isDir = false): string {
   if (isDir) return "📁";
   const ext = name.split(".").pop()?.toLowerCase() || "";
   const labels: Record<string, string> = {

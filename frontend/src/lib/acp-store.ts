@@ -123,7 +123,7 @@ function setSessionState(
 
 // ─── Session lifecycle ─────────────────────────────────────────────────────
 
-export async function initialize(
+async function initialize(
   config: AgentConfig,
   cwd: string,
 ): Promise<string> {
@@ -198,7 +198,7 @@ export function closeSession(sessionId: string): void {
   notifyMeta();
 }
 
-export function reconnect(config: AgentConfig, cwd: string) {
+function reconnect(config: AgentConfig, cwd: string) {
   if (defaultSessionId) {
     closeSession(defaultSessionId);
   }
@@ -298,7 +298,7 @@ export function subscribeToSession(
   };
 }
 
-export function subscribeToMeta(cb: MetaSubscriber): () => void {
+function subscribeToMeta(cb: MetaSubscriber): () => void {
   metaSubscribers.add(cb);
   return () => metaSubscribers.delete(cb);
 }
@@ -324,11 +324,11 @@ export function getSession(sessionId: string): SessionState {
   );
 }
 
-export function getDefaultSessionId(): string | null {
+function getDefaultSessionId(): string | null {
   return defaultSessionId;
 }
 
-export function getSessionIds(): string[] {
+function getSessionIds(): string[] {
   return Array.from(sessions.keys());
 }
 
@@ -378,7 +378,7 @@ export async function cancel(sessionId: string) {
 
 // ─── Queue management (backend-owned) ──────────────────────────────────────
 
-export async function getQueue(sessionId: string): Promise<QueuedItem[]> {
+async function getQueue(sessionId: string): Promise<QueuedItem[]> {
   const response = await fetch(
     `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
   );
@@ -390,7 +390,7 @@ export async function getQueue(sessionId: string): Promise<QueuedItem[]> {
   return data.items || [];
 }
 
-export async function queueAdd(
+async function queueAdd(
   sessionId: string,
   item: { id: string; text: string; blocks: ContentBlock[] },
 ) {
@@ -423,7 +423,7 @@ export async function queueRemove(sessionId: string, id: string) {
   }
 }
 
-export async function queueUpdate(
+async function queueUpdate(
   sessionId: string,
   id: string,
   text: string,
@@ -443,7 +443,7 @@ export async function queueUpdate(
   }
 }
 
-export async function queueClear(sessionId: string) {
+async function queueClear(sessionId: string) {
   const response = await fetch(
     `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
     {
@@ -458,7 +458,7 @@ export async function queueClear(sessionId: string) {
   }
 }
 
-export async function queueReorder(sessionId: string, ids: string[]) {
+async function queueReorder(sessionId: string, ids: string[]) {
   const response = await fetch(
     `/api/acp/sessions/${encodeURIComponent(sessionId)}/queue`,
     {

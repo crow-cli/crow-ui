@@ -29,6 +29,7 @@ export function WebFetchView({ url, content }: WebFetchViewProps) {
         <Streamdown
           plugins={{ mermaid, math }}
           components={{ code: MarkdownCode }}
+          linkSafety={{ enabled: false }}
         >
           {content}
         </Streamdown>

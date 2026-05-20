@@ -437,6 +437,13 @@ export default function ChatPane({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
+        onFocus={() => {
+          // Scroll to bottom when user focuses back into chat
+          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          isNearBottomRef.current = true;
+          setShowJumpToBottom(false);
+        }}
+        tabIndex={0}
         data-testid="chat-messages"
         className="chat-messages flex-1 overflow-y-auto py-3 flex flex-col gap-2 min-h-0 relative"
       >
@@ -832,6 +839,7 @@ function UserMessage({ text }: { text: string }) {
           plugins={{ mermaid, math }}
           isAnimating={false}
           components={{ code: MarkdownCode }}
+          linkSafety={{ enabled: false }}
         >
           {text}
         </Streamdown>
@@ -854,6 +862,7 @@ function AgentMessage({
           plugins={{ mermaid, math }}
           isAnimating={isStreaming}
           components={{ code: MarkdownCode }}
+          linkSafety={{ enabled: false }}
         >
           {text}
         </Streamdown>

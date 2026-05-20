@@ -21,6 +21,19 @@ fn parse_port() -> u16 {
     3928
 }
 
+fn parse_host() -> String {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if args[i] == "--host" && i + 1 < args.len() {
+            return args[i + 1].clone();
+        }
+        if let Some(rest) = args[i].strip_prefix("--host=") {
+            return rest.to_string();
+        }
+    }
+    "127.0.0.1".to_string()
+}
+
 fn parse_config_dir() -> PathBuf {
     let args: Vec<String> = std::env::args().collect();
     for i in 0..args.len() {
@@ -50,7 +63,8 @@ async fn main() {
         .init();
 
     let port = parse_port();
-    eprintln!("[crow-ui-server] config_dir={:?} port={}", config_dir, port);
+    let host = parse_host();
+    eprintln!("[crow-ui-server] config_dir={:?} host={} port={}", config_dir, host, port);
 
     // Set up terminal event broadcasting:
     // crossbeam channel (from TerminalManager) → bridge task → tokio broadcast → all clients
@@ -63,5 +77,5 @@ async fn main() {
     tokio::spawn(terminal_event_bridge(event_rx, bridge_tx));
 
     let app = Arc::new(Mutex::new(AppState::with_terminals(tm, event_tx, &config_dir)));
-    run_server(app, port).await;
+    run_server(app, &host, port).await;
 }

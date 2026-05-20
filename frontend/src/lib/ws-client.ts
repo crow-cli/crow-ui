@@ -17,7 +17,7 @@ interface WsNotification {
   params: Record<string, unknown>;
 }
 
-export type TerminalEventHandler = (event: {
+type TerminalEventHandler = (event: {
   type: "data" | "exit" | "started";
   id: number;
   data?: string;
@@ -27,7 +27,7 @@ export type TerminalEventHandler = (event: {
   cwd?: string;
 }) => void;
 
-export class WsClient {
+class WsClient {
   private nextId = 1;
   private pending = new Map<
     number,

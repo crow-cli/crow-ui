@@ -34,7 +34,7 @@ pub type App = Arc<Mutex<AppState>>;
 #[folder = "../../../target/frontend"]
 struct Assets;
 
-pub async fn run_server(app: App, port: u16) {
+pub async fn run_server(app: App, host: &str, port: u16) {
     let router = Router::new()
         .route("/ws", get(ws_handler))
         .route("/ws/acp", get(acp_ws_handler))
@@ -46,7 +46,8 @@ pub async fn run_server(app: App, port: u16) {
         // Fallback: serve embedded frontend files
         .fallback(get(serve_embedded));
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    let host_ip: std::net::IpAddr = host.parse().expect("invalid host address");
+    let addr = std::net::SocketAddr::from((host_ip, port));
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind");

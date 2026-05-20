@@ -30,16 +30,16 @@ export function getCachedFile(path: string): string | null {
 }
 
 /** Remove a file from the cache (e.g. when closing the workspace). */
-export function evictFile(path: string) {
+function evictFile(path: string) {
   cache.delete(path);
 }
 
 /** Clear the entire cache (e.g. when switching workspaces). */
-export function clearCache() {
+function clearCache() {
   cache.clear();
 }
 
 /** Debug: get cache size. */
-export function cacheSize(): number {
+function cacheSize(): number {
   return cache.size;
 }

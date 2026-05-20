@@ -403,7 +403,7 @@ function suppressDirtyForPath(path: string): void {
 }
 
 /** Utility: mark a model as clean (saved) */
-export function markModelClean(_path: string): void {
+function markModelClean(_path: string): void {
   // Monaco doesn't have a built-in "clean/dirty" flag.
   // Dirty state is tracked in React state in App.tsx.
   // This is a no-op placeholder for API compatibility.
