@@ -7,6 +7,7 @@
  * `settings-changed` broadcasts to stay in sync.
  */
 
+import { useState, useEffect } from "react";
 import { ws } from "./ws-client";
 import { settingsApi, workspaceApi } from "./rpc";
 
@@ -52,6 +53,15 @@ export interface FolderPickerSettings {
   showHiddenFiles: boolean;
 }
 
+export interface WorkbenchSettings {
+  tree: { fontSize: number };
+  tab: { fontSize: number };
+  sideBar: { fontSize: number };
+  panel: { fontSize: number };
+  statusBar: { fontSize: number };
+  chat: { fontSize: number };
+}
+
 export interface IdeSettings {
   editor: EditorSettings;
   languages: LanguageSettings;
@@ -59,6 +69,7 @@ export interface IdeSettings {
   terminal: TerminalSettings;
   explorer: ExplorerSettings;
   folderPicker: FolderPickerSettings;
+  workbench: WorkbenchSettings;
 }
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
@@ -97,13 +108,21 @@ const DEFAULT_SETTINGS: IdeSettings = {
   },
   terminal: {
     shell: "",
-    fontSize: 13,
+    fontSize: 14,
   },
   explorer: {
     showHiddenFiles: true,
   },
   folderPicker: {
     showHiddenFiles: false,
+  },
+  workbench: {
+    tree: { fontSize: 13 },
+    tab: { fontSize: 11 },
+    sideBar: { fontSize: 13 },
+    panel: { fontSize: 13 },
+    statusBar: { fontSize: 12 },
+    chat: { fontSize: 13 },
   },
 };
 
@@ -276,6 +295,25 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
+/**
+ * React hook that returns a live workbench font size.
+ * Automatically re-renders when the setting changes.
+ */
+export function useWorkbenchFontSize(key: keyof WorkbenchSettings): number {
+  const [size, setSize] = useState(() =>
+    (getSettings().workbench[key]?.fontSize ?? 13)
+  );
+
+  useEffect(() => {
+    const unsubscribe = subscribe(() => {
+      setSize(getSettings().workbench[key]?.fontSize ?? 13);
+    });
+    return unsubscribe;
+  }, [key]);
+
+  return size;
+}
+
 function isIntellisenseDisabled(languageId: string): boolean {
   const s = getSettings().intellisense;
   if (!s.enabled) return true;
@@ -323,4 +361,23 @@ export async function resetSettings(): Promise<void> {
 
 async function saveSettings(): Promise<void> {
   // No-op — backend persists automatically on updateSetting
+}
+
+/** Bump all font sizes by `delta` (positive or negative). Clamped to [8, 32]. */
+export async function bumpFontSizes(delta: number): Promise<void> {
+  const s = getSettings();
+  const clamp = (n: number) => Math.min(32, Math.max(8, Math.round(n + delta)));
+
+  const updates: [string, number][] = [
+    ["editor.fontSize", clamp(s.editor.fontSize)],
+    ["terminal.integrated.fontSize", clamp(s.terminal.fontSize)],
+    ["workbench.tree.fontSize", clamp(s.workbench.tree.fontSize)],
+    ["workbench.tab.fontSize", clamp(s.workbench.tab.fontSize)],
+    ["workbench.sideBar.fontSize", clamp(s.workbench.sideBar.fontSize)],
+    ["workbench.panel.fontSize", clamp(s.workbench.panel.fontSize)],
+    ["workbench.statusBar.fontSize", clamp(s.workbench.statusBar.fontSize)],
+    ["workbench.chat.fontSize", clamp(s.workbench.chat.fontSize)],
+  ];
+
+  await Promise.all(updates.map(([key, value]) => updateSetting(key, value)));
 }

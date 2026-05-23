@@ -8,6 +8,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import * as monaco from "monaco-editor";
+import * as settings from "../lib/settings";
 
 // ─── Shared ─────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ export function FileReadView({ content, path, maxHeight = 300 }: FileReadViewPro
       folding: true,
       wordWrap: "on",
       automaticLayout: true,
-      fontSize: 11,
+      fontSize: settings.getSettings().editor.fontSize,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       padding: { top: 4, bottom: 4 },
       contextmenu: false,
@@ -66,7 +67,13 @@ export function FileReadView({ content, path, maxHeight = 300 }: FileReadViewPro
 
     editorRef.current = editor;
 
+    const unsubscribe = settings.subscribe(() => {
+      const size = settings.getSettings().editor.fontSize;
+      editorRef.current?.updateOptions({ fontSize: size });
+    });
+
     return () => {
+      unsubscribe();
       editor.dispose();
       model.dispose();
     };
@@ -114,7 +121,7 @@ export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewP
       folding: false,
       wordWrap: "on",
       automaticLayout: true,
-      fontSize: 11,
+      fontSize: settings.getSettings().editor.fontSize,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       padding: { top: 4, bottom: 4 },
       contextmenu: false,
@@ -122,6 +129,11 @@ export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewP
       hideCursorInOverviewRuler: true,
       renderLineHighlight: "none",
       selectOnLineNumbers: false,
+    });
+
+    const unsubscribe = settings.subscribe(() => {
+      const size = settings.getSettings().editor.fontSize;
+      editorRef.current?.updateOptions({ fontSize: size });
     });
 
     // Add green background decorations for all lines
@@ -151,6 +163,7 @@ export function FileWriteView({ content, path, maxHeight = 300 }: FileWriteViewP
     }, 100);
 
     return () => {
+      unsubscribe();
       clearTimeout(timer);
       editor.dispose();
       model.dispose();
@@ -203,7 +216,7 @@ export function FileEditView({ beforeContent, afterContent, path, maxHeight = 40
       folding: true,
       wordWrap: "on",
       automaticLayout: true,
-      fontSize: 11,
+      fontSize: settings.getSettings().editor.fontSize,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       padding: { top: 4, bottom: 4 },
       contextmenu: false,
@@ -215,6 +228,11 @@ export function FileEditView({ beforeContent, afterContent, path, maxHeight = 40
         minimumLineCount: 5,
         revealLineCount: 5,
       },
+    });
+
+    const unsubscribe = settings.subscribe(() => {
+      const size = settings.getSettings().editor.fontSize;
+      diffEditorRef.current?.updateOptions({ fontSize: size });
     });
 
     diffEditor.setModel({
@@ -237,6 +255,7 @@ export function FileEditView({ beforeContent, afterContent, path, maxHeight = 40
     }, 100);
 
     return () => {
+      unsubscribe();
       clearTimeout(timer);
       diffEditor.dispose();
       originalModel.dispose();

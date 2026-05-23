@@ -12,6 +12,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import { Copy, ClipboardPaste, Trash2, BoxSelect } from "lucide-react";
 import { ws } from "../lib/ws-client";
+import * as settings from "../lib/settings";
 import * as acpStore from "../lib/acp-store";
 import {
   ContextMenu,
@@ -92,7 +93,7 @@ export default function InlineTerminal({
     const terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: "block",
-      fontSize: 12,
+      fontSize: settings.getSettings().terminal.fontSize ?? 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme: getTerminalTheme(),
       scrollback: 5000,
@@ -193,6 +194,18 @@ export default function InlineTerminal({
   }, [terminalId]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
+
+  // Live update terminal font size when settings change
+  useEffect(() => {
+    const unsubscribe = settings.subscribe(() => {
+      const newSize = settings.getSettings().terminal.fontSize ?? 14;
+      if (terminalRef.current) {
+        terminalRef.current.options.fontSize = newSize;
+        fitAddonRef.current?.fit();
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   // Listen for ACP terminal data + exit events via WebSocket.
   useEffect(() => {

@@ -234,17 +234,23 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
       };
     }, []);
 
-    // Fetch editor.fontSize from backend settings and apply it
+    // Live editor font-size updates from settings
     useEffect(() => {
       const editor = editorRef.current;
       if (!editor || readOnly) return;
 
-      settings.getSetting<number>("editor.fontSize", 14).then((size) => {
-        if (size !== undefined) {
-          editor.updateOptions({ fontSize: size });
-        }
+      // Apply initial value from cache (avoids async flash)
+      const initial = settings.getSettings().editor.fontSize;
+      editor.updateOptions({ fontSize: initial });
+
+      // Subscribe to future changes
+      const unsubscribe = settings.subscribe(() => {
+        const size = settings.getSettings().editor.fontSize;
+        editor.updateOptions({ fontSize: size });
       });
-    }, []);
+
+      return unsubscribe;
+    }, [readOnly]);
 
     // Register onSave callback
     useEffect(() => {

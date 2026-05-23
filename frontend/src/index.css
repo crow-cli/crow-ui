@@ -232,7 +232,7 @@ body {
     background: transparent !important;
     color: var(--theme-text-secondary) !important;
     padding: 0 14px !important;
-    font-size: 12px !important;
+    font-size: var(--workbench-tab-font-size, 11px) !important;
     height: 32px !important;
     display: flex !important;
     align-items: center !important;
@@ -350,7 +350,7 @@ body {
     background: transparent !important;
     color: var(--theme-text-secondary) !important;
     padding: 0 14px !important;
-    font-size: 12px !important;
+    font-size: var(--workbench-tab-font-size, 11px) !important;
     height: 32px !important;
     display: flex !important;
     align-items: center !important;
@@ -370,7 +370,7 @@ body {
     background: transparent !important;
     color: var(--theme-text-secondary) !important;
     padding: 0 14px !important;
-    font-size: 12px !important;
+    font-size: var(--workbench-tab-font-size, 11px) !important;
     height: 32px !important;
     display: flex !important;
     align-items: center !important;

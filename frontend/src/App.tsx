@@ -367,9 +367,14 @@ export default function App() {
       const themeName = (await settings.getSetting<string>("workbench.colorTheme", "purple-dark")) ?? "purple-dark";
       const { getTheme, injectTheme } = await import("./lib/themes");
       injectTheme(getTheme(themeName));
+      // Apply workbench tab font size CSS variable
+      const tabSize = settings.getSettings().workbench.tab.fontSize;
+      document.documentElement.style.setProperty('--workbench-tab-font-size', `${tabSize}px`);
     });
     return settings.subscribe(() => {
       setWordWrap(settings.getSettings().editor.wordWrap === "on");
+      const tabSize = settings.getSettings().workbench.tab.fontSize;
+      document.documentElement.style.setProperty('--workbench-tab-font-size', `${tabSize}px`);
     });
   }, [connected]);
 
@@ -1087,6 +1092,8 @@ export default function App() {
       cmd("rpc-log", "Open ACP Log", "View", "rpc_log", "Ctrl+Shift+R"),
       cmd("settings", "Open Settings", "View", "settings"),
       cmd("agent-config", "Agent Configuration", "ACP", "agent_config"),
+      { id: "font-size-up", label: "Increase Font Size", category: "View", action: () => settings.bumpFontSizes(1) },
+      { id: "font-size-down", label: "Decrease Font Size", category: "View", action: () => settings.bumpFontSizes(-1) },
     ];
   }, [handleMenuAction]);
 

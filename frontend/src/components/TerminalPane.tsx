@@ -6,6 +6,7 @@ import { Copy, ClipboardPaste, Trash2, BoxSelect } from "lucide-react";
 import { ws } from "../lib/ws-client";
 import { terminalApi } from "../lib/rpc";
 import { getTerminalTheme } from "../lib/themes";
+import * as settings from "../lib/settings";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -64,7 +65,7 @@ export default function TerminalPane({
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: settings.getSettings().terminal.fontSize ?? 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme: getTerminalTheme(),
       scrollback: 10000,
@@ -169,6 +170,18 @@ export default function TerminalPane({
   }, [workspaceRoot, terminalId]);
 
 
+
+  // Live update terminal font size when settings change
+  useEffect(() => {
+    const unsubscribe = settings.subscribe(() => {
+      const newSize = settings.getSettings().terminal.fontSize ?? 14;
+      if (terminalRef.current) {
+        terminalRef.current.options.fontSize = newSize;
+        fitAddonRef.current?.fit();
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   // Handle terminal events from server
   useEffect(() => {

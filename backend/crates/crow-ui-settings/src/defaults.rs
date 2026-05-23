@@ -308,8 +308,14 @@ fn add_workbench_defaults(m: &mut Map<String, Value>) {
     ins(m, "workbench.editor.labelFormat", json!("default"));
     ins(m, "workbench.editor.untitled.labelFormat", json!("content"));
     ins(m, "workbench.editor.pinnedTabSizing", json!("normal"));
+    ins(m, "workbench.tree.fontSize", json!(13));
     ins(m, "workbench.tree.indent", json!(8));
     ins(m, "workbench.tree.renderIndentGuides", json!("onHover"));
+    ins(m, "workbench.tab.fontSize", json!(11));
+    ins(m, "workbench.sideBar.fontSize", json!(13));
+    ins(m, "workbench.panel.fontSize", json!(13));
+    ins(m, "workbench.statusBar.fontSize", json!(12));
+    ins(m, "workbench.chat.fontSize", json!(13));
     ins(m, "workbench.tree.expandMode", json!("singleClick"));
     ins(m, "workbench.list.smoothScrolling", json!(false));
     ins(m, "workbench.list.openMode", json!("singleClick"));

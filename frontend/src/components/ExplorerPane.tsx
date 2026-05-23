@@ -68,6 +68,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
   // Explorer appearance settings (backend-driven)
   const [explorerBg, setExplorerBg] = useState("#18181b");
   const [explorerOpacity, setExplorerOpacity] = useState(1.0);
+  const treeFontSize = settings.useWorkbenchFontSize("tree");
 
   const explorerBgRgba = useMemo(() => {
     const hex = explorerBg.replace("#", "");
@@ -458,7 +459,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
         paddingRight: 8,
         paddingTop: 4,
         paddingBottom: 4,
-        fontSize: 13,
+        fontSize: treeFontSize,
         height: 28,
       }}
     >
@@ -528,7 +529,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
             paddingRight: 8,
             paddingTop: 4,
             paddingBottom: 4,
-            fontSize: 13,
+            fontSize: treeFontSize,
             height: 28,
           }}
         >

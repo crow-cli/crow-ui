@@ -74,8 +74,13 @@ export default function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const prevNotifLen = useRef(0);
-  const isNearBottomRef = useRef(true);
+  /** true = user has manually scrolled up, don't auto-scroll */
+  const userScrolledUpRef = useRef(false);
+  /** true = next scroll event came from our own programmatic scroll, ignore it */
+  const isProgrammaticScrollRef = useRef(false);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+
+  const chatFontSize = settings.useWorkbenchFontSize("chat");
 
   const effectiveSessionId = sessionId || localSessionId;
   const activeSessionId = effectiveSessionId || "disconnected";
@@ -125,29 +130,73 @@ export default function ChatPane({
     };
   }, [effectiveSessionId]);
 
-  // Track scroll position to determine if user is near bottom
+  // Track user scroll — only set scrolled-up flag from actual scroll events
   const handleScroll = useCallback(() => {
+    if (isProgrammaticScrollRef.current) {
+      isProgrammaticScrollRef.current = false;
+      return;
+    }
     const container = messagesContainerRef.current;
     if (!container) return;
-    const threshold = 80; // px from bottom
-    const nearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
+    const threshold = 40;
+    const atBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <=
       threshold;
-    isNearBottomRef.current = nearBottom;
-    if (nearBottom) setShowJumpToBottom(false);
+    if (!atBottom && !userScrolledUpRef.current) {
+      userScrolledUpRef.current = true;
+      setShowJumpToBottom(true);
+    } else if (atBottom && userScrolledUpRef.current) {
+      userScrolledUpRef.current = false;
+      setShowJumpToBottom(false);
+    }
   }, []);
 
-  // Auto-scroll on new notifications — only if user was near bottom
+  // Auto-scroll on new notifications — only if user hasn't scrolled up
   useEffect(() => {
     if (notifications.length > prevNotifLen.current) {
-      if (isNearBottomRef.current) {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (!userScrolledUpRef.current) {
+        isProgrammaticScrollRef.current = true;
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
       } else {
         setShowJumpToBottom(true);
       }
     }
     prevNotifLen.current = notifications.length;
   }, [notifications.length]);
+
+  // When async content grows (Monaco, xterm, images) and user hasn't scrolled up,
+  // scroll to keep the bottom in view. Debounced so parallel Monaco editors
+  // (which each measure on their own setTimeout) don't cause scroll jitter.
+  const resizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const ro = new ResizeObserver(() => {
+      if (userScrolledUpRef.current) return;
+      if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
+      resizeDebounceRef.current = setTimeout(() => {
+        resizeDebounceRef.current = null;
+        if (!userScrolledUpRef.current) {
+          isProgrammaticScrollRef.current = true;
+          messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+        }
+      }, 150);
+    });
+
+    ro.observe(container);
+    return () => {
+      ro.disconnect();
+      if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
+    };
+  }, []);
+
+  const jumpToBottom = useCallback(() => {
+    userScrolledUpRef.current = false;
+    setShowJumpToBottom(false);
+    isProgrammaticScrollRef.current = true;
+    messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+  }, []);
 
   // Extract content from a tool call — checks content blocks, rawOutput, and rawInput
   function extractContentFromTool(tool: any): string | null {
@@ -401,8 +450,9 @@ export default function ChatPane({
   return (
     <div
       data-testid="chat-pane"
-      className="relative flex flex-col h-full min-w-0 text-text-primary text-[13px] overflow-hidden font-sans"
+      className="relative flex flex-col h-full min-w-0 text-text-primary overflow-hidden font-sans"
       style={{
+        fontSize: chatFontSize,
         backgroundColor: `color-mix(in srgb, var(--theme-chat-bg) calc(var(--theme-chat-bg-opacity) * 100%), transparent)`,
       }}
     >
@@ -437,12 +487,6 @@ export default function ChatPane({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        onFocus={() => {
-          // Scroll to bottom when user focuses back into chat
-          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-          isNearBottomRef.current = true;
-          setShowJumpToBottom(false);
-        }}
         tabIndex={0}
         data-testid="chat-messages"
         className="chat-messages flex-1 overflow-y-auto py-3 flex flex-col gap-2 min-h-0 relative"
@@ -472,11 +516,7 @@ export default function ChatPane({
             variant="secondary"
             size="sm"
             className="text-[11px] shadow-lg bg-surface border border-border hover:bg-hover"
-            onClick={() => {
-              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-              setShowJumpToBottom(false);
-              isNearBottomRef.current = true;
-            }}
+            onClick={jumpToBottom}
           >
             New messages ↓
           </Button>
@@ -648,7 +688,7 @@ function Header({
           className="w-2 h-2 rounded-full shrink-0"
           style={{ backgroundColor: statusColor }}
         />
-        <span className="text-[13px] font-mono truncate">{sessionId || agentName}</span>
+        <span className="font-mono truncate">{sessionId || agentName}</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {!hasSession && availableAgents.length > 0 && (
@@ -828,7 +868,7 @@ function UserMessage({ text }: { text: string }) {
   return (
     <Message>
       <div
-        className="inline-block max-w-[85%] rounded-lg px-4 py-2.5 font-mono text-[13px] leading-relaxed text-text-primary"
+        className="inline-block max-w-[85%] rounded-lg px-4 py-2.5 font-mono leading-relaxed text-text-primary"
         style={{
           backgroundColor: "var(--theme-accent-10)",
           border: "1px solid var(--theme-accent-20)",
@@ -857,7 +897,7 @@ function AgentMessage({
 }) {
   return (
     <Message>
-      <div className="text-[13px] leading-relaxed text-text-primary">
+      <div className="leading-relaxed text-text-primary">
         <Streamdown
           plugins={{ mermaid, math }}
           isAnimating={isStreaming}
@@ -874,9 +914,9 @@ function AgentMessage({
 function ThinkingBlock({ text }: { text: string }) {
   return (
     <Message>
-      <details open className="text-xs text-text-secondary opacity-70">
+      <details open className="text-text-secondary opacity-70">
         <summary className="cursor-pointer select-none">Thinking</summary>
-        <div className="mt-1 border-l-2 border-text-secondary pl-3 whitespace-pre-wrap text-xs">
+        <div className="mt-1 border-l-2 border-text-secondary pl-3 whitespace-pre-wrap">
           {text}
         </div>
       </details>
@@ -1053,7 +1093,7 @@ function ToolCallAccordion({
         </span>
       </div>
       {open && (
-        <div className="px-2.5 py-2 border-t border-border text-[11px]">
+        <div className="px-2.5 py-2 border-t border-border text-[11px] animate-in fade-in duration-150">
           {/* Terminal view — show live output as it runs (ACP spec) */}
           {isTerminal && terminalId ? (
             <InlineTerminal

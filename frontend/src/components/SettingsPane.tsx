@@ -27,6 +27,7 @@ function getDefaultJson(): string {
       languages: s.languages,
       intellisense: s.intellisense,
       terminal: s.terminal,
+      workbench: s.workbench,
     },
     null,
     2,
@@ -100,7 +101,7 @@ export default function SettingsPane() {
       language: "jsonc",
       theme: "settings-dark",
       automaticLayout: true,
-      fontSize: 13,
+      fontSize: settings.getSettings().editor.fontSize,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       lineNumbers: "on",
       minimap: { enabled: false },
@@ -125,6 +126,15 @@ export default function SettingsPane() {
       editorRef.current = null;
     };
   }, [jsonText]);
+
+  // Live update editor font size when settings change
+  useEffect(() => {
+    const unsubscribe = settings.subscribe(() => {
+      const size = settings.getSettings().editor.fontSize;
+      editorRef.current?.updateOptions({ fontSize: size });
+    });
+    return unsubscribe;
+  }, []);
 
   // Load on mount
   useEffect(() => {
