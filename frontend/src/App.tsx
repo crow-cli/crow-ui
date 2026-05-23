@@ -23,6 +23,7 @@ import {
   X,
   Menu,
   Search,
+  Eye,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -42,6 +43,7 @@ import RpcLogPanel from "./components/RpcLogPanel";
 import SettingsPane from "./components/SettingsPane";
 import AgentConfigPane from "./components/AgentConfigPane";
 import SearchPane from "./components/SearchPane";
+import MarkdownPreviewPane from "./components/MarkdownPreviewPane";
 import { FolderPicker } from "./components/FolderPicker";
 import CommandPalette, { type Command } from "./components/CommandPalette";
 import BottomBar, { type ActivityId } from "./components/BottomBar";
@@ -93,6 +95,8 @@ function getTabIcon(name: string): ReactNode {
     return <FileCode2 className="w-3.5 h-3.5 text-violet-500" />;
   if (name.endsWith(".toml") || name.endsWith(".json") || name.endsWith(".yaml") || name.endsWith(".yml"))
     return <FileJson className="w-3.5 h-3.5 text-zinc-500" />;
+  if (name.endsWith("(Preview)"))
+    return <Eye className="w-3.5 h-3.5 text-violet-400" />;
   return null;
 }
 
@@ -1170,6 +1174,50 @@ export default function App() {
     [],
   );
 
+  // Open markdown preview for a given editor tab
+  const openMarkdownPreview = useCallback(
+    (nodeId: string) => {
+      const model = layoutModelRef.current;
+      if (!model) return;
+      const node = model.getNodeById(nodeId);
+      if (!node || node.getType() !== "tab") return;
+
+      const tab = node as TabNode;
+      const path = tab.getConfig()?.path as string;
+      if (!path) return;
+
+      const previewId = `preview-${path}`;
+      // If preview already open, just select it
+      const existing = model.getNodeById(previewId);
+      if (existing) {
+        model.doAction(Actions.selectTab(previewId));
+        return;
+      }
+
+      // Add preview tab to the same tabset as the editor
+      const tabset = tab.getParent();
+      if (!tabset || tabset.getType() !== "tabset") return;
+
+      const fileName = path.split("/").pop() || path;
+      model.doAction(
+        Actions.addTab(
+          {
+            type: "tab",
+            id: previewId,
+            name: `${fileName} (Preview)`,
+            component: "markdown-preview",
+            config: { path },
+          },
+          tabset.getId(),
+          DockLocation.CENTER,
+          -1,
+          true,
+        ),
+      );
+    },
+    [],
+  );
+
   // ── FlexLayout factory ──────────────────────────────────────────────────
 
   const layoutFactory = (node: TabNode) => {
@@ -1289,6 +1337,10 @@ export default function App() {
             }}
           />
         );
+      case "markdown-preview": {
+        const previewPath = node.getConfig()?.path as string;
+        return <MarkdownPreviewPane key={previewPath} path={previewPath} />;
+      }
       default:
         return <div>Unknown component: {component}</div>;
     }
@@ -1394,6 +1446,19 @@ export default function App() {
                       <SquareSplitVertical className="w-3.5 h-3.5 -rotate-90" />
                       Split Left
                     </ContextMenuItem>
+                    {node.getComponent() === "editor" &&
+                      (node.getConfig()?.path as string)?.endsWith(".md") && (
+                        <>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            onClick={() => openMarkdownPreview(nodeId)}
+                            className="gap-2"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Open Preview
+                          </ContextMenuItem>
+                        </>
+                      )}
                     <ContextMenuSeparator />
                     <ContextMenuItem
                       onClick={() => closeTabNode(nodeId)}

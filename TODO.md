@@ -31,6 +31,16 @@
 - ✅ Queued messages UI with edit (✎), send now (▶), remove (✕)
 - ✅ Ultradark background with dot pattern + glass textures
 - ✅ MessageEditor layout fix: flex column, no text overlap with bottom bar
+- ✅ **Chat scroll control v2**: `userScrolledUpRef` + `isProgrammaticScrollRef` — only user-initiated scrolls trigger "New messages", programmatic scrolls ignored, debounced ResizeObserver for parallel Monaco growth
+- ✅ **ThinkingBlock font size**: removed hardcoded `text-xs`, inherits chat font size
+
+### Font Size System (NEW — May 23)
+- ✅ Backend defaults: `workbench.tree.fontSize`, `workbench.tab.fontSize`, `workbench.sideBar.fontSize`, `workbench.panel.fontSize`, `workbench.statusBar.fontSize`, `workbench.chat.fontSize`
+- ✅ Frontend `WorkbenchSettings` type + `useWorkbenchFontSize()` hook
+- ✅ `bumpFontSizes(delta)` — bumps all font size keys at once, clamped [8, 32]
+- ✅ Command palette: "Increase Font Size" / "Decrease Font Size"
+- ✅ Wired surfaces: EditorPane, FileViews (read/write/diff), TerminalPane, InlineTerminal, SettingsPane, ExplorerPane, ChatPane, flexlayout tabs (CSS variable `--workbench-tab-font-size`)
+- ✅ Terminal font size live updates via `fitAddon.fit()` after `options.fontSize` change
 
 ### FlexLayout & Layout
 - ✅ Split via context menu on every pane
@@ -42,11 +52,13 @@
 - ✅ Ctrl+C, Ctrl+V, Ctrl+A work in terminal
 - ✅ PTY spawn via backend
 - ✅ Shell environment resolution (`~/.bashrc`, PATH, fnm/nvm)
+- ✅ **Live font size updates** via settings subscription + `fitAddon.fit()`
 
 ### Session Management
 - ✅ ACP session IDs are REAL agent session IDs
 - ✅ `POST /api/acp/sessions` returns actual agent session ID
 - ✅ Queue backend-owned with HTTP API and WS events
+- ✅ **Cross-agent communication proven** — agent-to-agent messaging via ACP prompt endpoint works (curl tennis between sessions)
 
 ### Workspace & Persistence
 - ✅ Workspace auto-restore on page refresh
@@ -84,12 +96,28 @@
 
 ---
 
-## 🔥 CURRENT SPRINT (see PLAN.md)
+## 🔥 CURRENT SPRINT
 
-1. **Chat Scroll Control** — User can scroll up while agent streams without being pulled down
-2. **Image Rendering in Chat** — Inline image display for image content blocks
-3. **Copy/Paste Screenshots into MessageEditor** — Clipboard image → TipTap image node
-4. **Rich Text Editor State → Backend** — Draft persistence per chat tab
+### Chat (Next Priority)
+- [ ] **Markdown list support in TipTap** — `- ` and `1. ` auto-continue on newlines, rendered in user prompt bubbles
+- [ ] **Image sending from TipTap** — clipboard paste → image node displays correctly, but sending breaks; needs unit/integration testing before e2e
+- [ ] **Image rendering from MCP tools** — MCP tools that return images should display inline in chat (currently not implemented)
+- [ ] **Markdown preview pane** — Eye icon toggle for markdown files, mystmd rendering; desperately needed
+- [ ] **Draft persistence** — Auto-save TipTap draft to backend per chat tab
+- [ ] **Drag and drop** — Drag files into chat, drag tabs between panes
+
+### Web Tools
+- [ ] **Jazz up WebSearch/WebFetch** — Better UI for search results and fetched content
+
+### TipTap / MessageEditor
+- [ ] **@-context improvements** — Zed-style @ context menu with file content preview, not just filename insertion
+- [ ] **Rich text → backend state** — Serialize TipTap JSON to backend for persistence
+
+### Agent Factory / Orchestration
+- [ ] **Backend orchestration layer** — Mesh delegation so agents can coordinate without human as HTTP postman
+- [ ] **Jupyter-like notebook interface** — Python cells for agent configuration and execution inside crow-ui
+- [ ] **MCP debugging interface** — Visual tool inspector for MCP tools (latency, errors, schema)
+- [ ] **Long-running agent orchestrator** — New system prompts, configurable agents/tools/prompts through UI
 
 ---
 
@@ -97,14 +125,7 @@
 
 ### UI Polish
 - [ ] **Bottom bar cleanup**: Remove minimize-all buttons, use sidebar tabs for minimizing
-- [ ] **Markdown preview**: Eye icon toggle for markdown files, mystmd rendering
 - [ ] **Settings UI pane**: General settings editor in FlexLayout panel
-
-### Chat
-- [ ] **Scroll control during streaming**: Pause auto-scroll when user scrolls up
-- [ ] **Image rendering**: Inline images from tool responses
-- [ ] **Copy/paste images**: Clipboard → TipTap editor
-- [ ] **Draft persistence**: Auto-save drafts to backend
 
 ### Explorer
 - [ ] **expandedDirs persistence**: Load/save from backend SQLite
@@ -112,6 +133,9 @@
 ### State Refactor
 - [ ] **dirtyFiles → backend**: Derive from document state, not Monaco callbacks
 - [ ] **pendingPermission removal**: Strip all permission code
+
+### Packaging
+- [ ] **Electron Linux build issues** — AppImage/flatpak packaging
 
 ---
 

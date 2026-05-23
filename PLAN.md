@@ -8,136 +8,102 @@ This is the active development roadmap. Items are ordered by priority. Completed
 - **Shadcn UI + Tailwind**: All UI components use shadcn/ui primitives styled with Tailwind CSS variables. No one-off CSS.
 - **FlexLayout for everything**: Panes, panels, splits — all FlexLayout. No modals for configuration.
 - **Real agents only**: Tests spawn actual `crow-cli acp` processes. No mocks.
+- **Chat > IDE parity**: The agent chat experience is the product. Editor/explorer polish is secondary as long as agents work well.
 
 ---
 
-## 🔥 Current Sprint
+## 🔥 CURRENT SPRINT
 
-### 1. Chat Scroll Control
+### 1. Markdown Preview (TABLE STAKES)
 
-**Goal**: When the agent is streaming a response, if the user scrolls up to read earlier content, the auto-scroll should pause and let the user stay where they are.
+**Goal**: Right-click any `.md` file tab → "Open Preview" → renders the markdown with Streamdown in a new pane.
 
-**Current behavior**: Auto-scroll always jumps to bottom on new chunks.
-
-**Desired behavior**:
-- If user is at the bottom (within ~50px of scroll end), auto-scroll keeps them at bottom
-- If user has scrolled up, auto-scroll pauses
-- When user scrolls back to bottom, auto-scroll resumes
-- Visual indicator (e.g., "New messages ↓") when content is added while scrolled up
+**Why now**: User declared this table stakes. It's the simplest way to dogfood Streamdown and make the project browser usable.
 
 **Implementation**:
-- Track scroll position in `ChatPane` messages container
-- Compare scrollTop + clientHeight vs scrollHeight
-- Only call `scrollIntoView` if user was near bottom
-- Add floating "Jump to bottom" button that appears when scrolled up and new content arrives
+- Create `MarkdownPreviewPane.tsx` — reads file via `fsApi.readFile`, renders with `<Streamdown>` (non-streaming, `isAnimating={false}`)
+- Register `markdown-preview` component in FlexLayout factory
+- Add "Open Preview" to tab context menu in `onRenderTab` (only for `.md` files)
+- Open preview as new tab in same tabset, or split right — user decides via FlexLayout drag
+- Optional: Live update when file changes via `ws.onWorktreeEvent`
 
-### 2. Image Rendering in Chat
+### 2. Chat Polish — TipTap Lists & Image Sending
 
-**Goal**: Render image content blocks inline in chat — both from ACP tool results and pasted/uploaded images.
+**Goal**: Make the chat input feel like a real rich text editor.
 
-**Current behavior**: Image content blocks are not handled in `MessageGroup`. ACP tools that return images (screenshots, generated images, etc.) show as broken/empty content.
+**Sub-tasks**:
+- **Markdown lists in TipTap**: Typing `- ` or `1. ` starts a list, Enter continues it, Backspace on empty line exits list
+- **Image sending fix**: Paste/drop images into editor displays thumbnail, but sending breaks — fix content block extraction on send
+- **Image rendering from MCP tools**: MCP tools returning `image` content blocks should render inline in chat
 
-**Desired behavior**:
-- `image` type content blocks from ACP tool results render as `<img>` tags inline
-- Support base64 data URLs and remote URLs
-- Click to expand/lightbox view
-- Max height constraint with click-to-expand
+### 3. Default Themes + UI Polish
 
-**Implementation**:
-- Add `image` case to `MessageGroup` switch in `ChatPane.tsx`
-- Create `ImageMessage` component with max-height CSS
-- Lightbox on click (shadcn Dialog or custom)
+**Goal**: More visual options, make the agent OS feel professional.
 
-### 3. Copy/Paste Screenshots into MessageEditor
+**Sub-tasks**:
+- **More default themes**: At least 2-3 complete themes beyond purple-dark
+- **Translucence toggle**: UI control to turn dot pattern on/off, adjust glass/background opacity
+- **Theme CSS variables cleanup**: Ensure all surfaces read from variables, no hardcoded colors
 
-**Goal**: Paste images from clipboard directly into the TipTap editor.
+### 4. FlexLayout Power Features
 
-**Current behavior**: Paste probably inserts nothing or plain text.
+**Goal**: Lean into FlexLayout as the agent command center layout engine.
 
-**Desired behavior**:
-- Ctrl+V with image in clipboard inserts image into editor
-- Image is uploaded/converted to base64 and stored as `image` content block
-- Visual thumbnail shown in editor
-- On send, image block is included in the prompt
-
-**Implementation**:
-- Add `onPaste` handler to TipTap editor props
-- Read clipboard data as `DataTransfer`
-- Convert image blob to base64 data URL
-- Insert `image` node via TipTap `setImage` command
-- On send, extract image blocks alongside text blocks
-
-### 4. Rich Text Editor State → Backend
-
-**Goal**: Move more MessageEditor state to backend.
-
-**Current concerns**:
-- `editingDraft` is frontend-only state
-- Editor content is lost on refresh
-- No way to resume a draft across sessions
-
-**Approach**:
-- Store drafts per-chat-tab in backend SQLite
-- Auto-save draft every few seconds
-- Restore draft when tab reopens
-- This is lower priority than the other items
+**Sub-tasks**:
+- **Save/restore layouts per workspace**: Already partially done, ensure all pane types restore correctly
+- **Default layouts**: Ship a few preset layouts ("Agent Focus", "Coding", "Debug") that users can switch between
+- **Drag-and-drop**: Drag files into chat, drag images into editor, drag tabs between borders/main
 
 ---
 
-## 📋 Backlog
+## 📋 BACKLOG (Agent Factory Vision)
 
-### Bottom Bar Cleanup
-- Remove "Minimize all editors", "Minimize all terminals", "Minimize all chats" buttons from status bar
-- Remove "Hide Explorer" button
-- Minimizing explorer should be done by clicking the Explorer activity tab on the sidebar
-- This simplifies the UI and removes assumptions about component-type → tabset mapping
+### Agent Orchestration
+- **Backend orchestration layer**: Mesh delegation so agents can coordinate without human as HTTP postman
+- **Long-running agent orchestrator**: New system prompts, configurable agents/tools/prompts through UI
+- **Jupyter-like notebook interface**: Python cells for agent configuration and execution inside crow-ui
+- **MCP debugging interface**: Visual tool inspector (latency, errors, schema, toggle on/off)
 
-### expandedDirs → Backend Persistence
-- `ExplorerPane` `expandedDirs` should load from/save to `get_explorer_state` / `save_explorer_state`
-- Currently lost on every refresh
+### Content Rendering
+- **Web view (iframe)**: Simple iframe renderer for fetched webpages / searxng results
+- **Streamdown link controls**: Strip link click controls, handle ourselves
+- **Image lightbox**: Click any image in chat to expand full-size
 
-### dirtyFiles → Backend Document State
-- Frontend `dirtyFiles: Set<string>` in `App.tsx` should be derived from backend `document_get_info`
-- Backend should broadcast `dirty-changed` events
+### State Refactor
+- **`dirtyFiles: Set<string>` → backend document state**: Derive from `document_get_info`, not Monaco callbacks
+- **`expandedDirs` → backend persistence**: Load/save explorer state to SQLite
+- **`pendingPermission` removal**: Strip all permission UI and state
 
-### pendingPermission Removal
-- User explicitly said "permissions are garbage I don't even want them in the code"
-- Strip all permission request UI and state from frontend
-- Remove `pendingPermission` from backend session state
-
-### Markdown Preview
-- Eye icon toggle for markdown files in editor pane
-- Render markdown preview side-by-side or in-place
-- Reuse mystmd spec rendering code
-
-### MCP Server Configuration UI
-- CRUD MCP server configs (command, args, env key:value pairs)
-- Each MCP server: id, name, command, args[], env{}, enabled
-- Side-by-side key:value inputs for env (like proper UI)
-- Agent config pane shows toggles for which MCP servers to enable per-agent
-- On session init, enabled MCP servers passed to agent via ACP protocol
-
-### Content Rendering (Images + Markdown + Web)
-- **Image content blocks from ACP tools**: Render inline in chat when tools return `image` content blocks (base64 or URLs)
-- **Image viewing in editor**: Click an image in any rendered content to view full-size (lightbox). Images in rich text editor render inline as thumbnails.
-- **Markdown file preview**: Eye icon toggle for `.md` files in editor pane — render with Streamdown instead of raw text
-- **Streamdown link controls**: Strip out all link click controls from Streamdown. We handle controls ourselves.
-- **Web view (iframe)**: Simple iframe-based renderer for web content (searxng, fetched webpages). Not a full browser engine — just an iframe FlexLayout pane type.
-
-### Rich Text Editor → Standalone WYSIWYG Component
-- **Goal**: The TipTap-based editor becomes a reusable WYSIWYG component that generates markdown (mystmd)
-- **Split from chat**: Toggle/button to pop the editor out into its own FlexLayout pane. Same component, different container. Session ID tracked so it knows which chat to send to.
-- **Inline images**: Paste or drop images into the editor, render as thumbnails inline
-- **Drag-and-drop pane**: Editor can be a standalone FlexLayout tab type (`wysiwyg-editor`) that recycles the same code
-- **Not just for chat**: Use it for note-taking, document drafting, anywhere we need rich text input
-
-### Settings UI Pane
-- General settings editor (theme, font size, word wrap, etc.)
-- Same pattern as Agent Configuration UI: FlexLayout pane, shadcn components
+### IDE Parity (Lower Priority)
+- **Bottom bar cleanup**: Remove minimize-all buttons, use sidebar tabs
+- **Settings UI pane**: General settings editor in FlexLayout panel
+- **Word wrap setting**: Move from hardcoded to `crow-ui-settings.json`
+- **Show hidden files**: Explorer preference in settings
 
 ---
 
 ## ✅ Archive
+
+### Chat Scroll Control v2 (May 23)
+- `userScrolledUpRef` + `isProgrammaticScrollRef` pattern
+- Only user-initiated scrolls trigger "New messages" button
+- Programmatic scrolls (from `scrollIntoView`) ignored via flag
+- Debounced ResizeObserver (150ms) for parallel Monaco editor growth
+- Accordion content fade-in animation (`animate-in fade-in duration-150`)
+
+### Font Size System (May 23)
+- Backend defaults: `workbench.*.fontSize` keys
+- Frontend `WorkbenchSettings` + `useWorkbenchFontSize()` hook
+- `bumpFontSizes(delta)` bumps all surfaces at once, clamped [8, 32]
+- Command palette: "Increase Font Size" / "Decrease Font Size"
+- Wired: EditorPane, FileViews, TerminalPane, InlineTerminal, SettingsPane, ExplorerPane, ChatPane, flexlayout tabs
+- Terminal live updates via `fitAddon.fit()` after `options.fontSize` change
+- ThinkingBlock inherits chat font size (removed hardcoded `text-xs`)
+
+### Cross-Agent Communication Proven (May 23)
+- Agent-to-agent messaging via ACP prompt endpoint works
+- `curl -X POST /api/acp/sessions/{session_id}/prompt` routes between sessions
+- Verified with `inescapable-astute-pony-of-advance` ↔ `gregarious-rare-frigatebird-of-excellence` ↔ `aloof-fair-koel-of-engineering`
 
 ### Backend Queue Ownership
 - `AcpSession` owns `Vec<QueuedItem>` with full CRUD + reorder
@@ -174,3 +140,9 @@ This is the active development roadmap. Items are ordered by priority. Completed
 - Bugs fixed:
   - Delete button nested inside `<button>` — changed to `<div>` + separate `<button>`
   - ID editing broke selection — updated `selectedAgentId` atomically with data change
+
+$$
+\nabla \vec{E} = \frac{\rho}{\epsilon_0}
+$$
+
+![alt text](./docs/img/zed-margins.png)
