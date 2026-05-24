@@ -213,6 +213,8 @@ const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(
         };
         const close = WRAP_PAIRS[e.key];
         if (!close) return;
+        // Let Monaco/OS handle modified keys (Ctrl+[, Ctrl+{, etc.)
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
         const sel = editor.getSelection();
         if (!sel || sel.isEmpty()) return;
         e.preventDefault();
