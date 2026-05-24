@@ -164,32 +164,11 @@ export default function ChatPane({
     prevNotifLen.current = notifications.length;
   }, [notifications.length]);
 
-  // When async content grows (Monaco, xterm, images) and user hasn't scrolled up,
-  // scroll to keep the bottom in view. Debounced so parallel Monaco editors
-  // (which each measure on their own setTimeout) don't cause scroll jitter.
-  const resizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    const ro = new ResizeObserver(() => {
-      if (userScrolledUpRef.current) return;
-      if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
-      resizeDebounceRef.current = setTimeout(() => {
-        resizeDebounceRef.current = null;
-        if (!userScrolledUpRef.current) {
-          isProgrammaticScrollRef.current = true;
-          messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-        }
-      }, 150);
-    });
-
-    ro.observe(container);
-    return () => {
-      ro.disconnect();
-      if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
-    };
-  }, []);
+  // Overflow-anchor CSS handles pinning scroll to bottom when async content
+  // (Monaco editors, images, etc.) grows inside existing messages. The sentinel
+  // at the bottom is the only anchor candidate, so the browser scrolls to keep
+  // it in view as content above it expands. New messages still trigger the
+  // notifications.length effect above for the initial scroll kickoff.
 
   const jumpToBottom = useCallback(() => {
     userScrolledUpRef.current = false;
@@ -492,21 +471,27 @@ export default function ChatPane({
         className="chat-messages flex-1 overflow-y-auto py-3 flex flex-col gap-2 min-h-0 relative"
       >
         {messageGroups.length === 0 && (
-          <div className="text-center text-text-secondary text-sm mt-10">
-            {statusLabel}
+          <div style={{ overflowAnchor: "none" }}>
+            <div className="text-center text-text-secondary text-sm mt-10">
+              {statusLabel}
+            </div>
           </div>
         )}
         {messageGroups.map((group, idx) => (
-          <MessageGroup
-            key={group[0].id}
-            group={group}
-            isStreaming={isPromptRunning}
-            isLast={idx === messageGroups.length - 1}
-            fetchedFiles={fetchedFiles}
-            sessionId={effectiveSessionId}
-          />
+          <div key={group[0].id} style={{ overflowAnchor: "none" }}>
+            <MessageGroup
+              group={group}
+              isStreaming={isPromptRunning}
+              isLast={idx === messageGroups.length - 1}
+              fetchedFiles={fetchedFiles}
+              sessionId={effectiveSessionId}
+            />
+          </div>
         ))}
-        <div ref={messagesEndRef} />
+        <div
+          ref={messagesEndRef}
+          style={{ overflowAnchor: "auto", height: 1, flexShrink: 0 }}
+        />
       </div>
 
       {/* Jump to bottom button */}
