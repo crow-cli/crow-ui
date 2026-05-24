@@ -236,7 +236,7 @@ export default function TerminalPane({
             ref={containerRef}
             className="absolute inset-0 overflow-hidden bg-[var(--color-background-deeper)]"
           />
-          <div className="dot-overlay" />
+          {/* <div className="dot-overlay" /> */}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-56">

@@ -34,7 +34,7 @@ body::after {
 }
 
 /* Dot pattern overlay for chat / terminal panels */
-.dot-overlay {
+/*.dot-overlay {
     position: absolute;
     inset: 0;
     pointer-events: none;
@@ -45,7 +45,7 @@ body::after {
         transparent 0
     );
     background-size: 16px 16px;
-}
+}*/
 
 @custom-variant dark (&:is(.dark *));
 

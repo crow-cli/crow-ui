@@ -19,6 +19,7 @@ import {
   useMemo,
 } from "react";
 import { cn } from "../lib/utils";
+import { useWorkbenchFontSize } from "../lib/settings";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
@@ -489,6 +490,8 @@ export default function MessageEditor({
     });
   }, []);
 
+  const chatFontSize = useWorkbenchFontSize("chat");
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -697,9 +700,10 @@ export default function MessageEditor({
       <div className="flex gap-2 items-end">
         <div
           className={cn(
-            "flex-1 rounded-md text-text-primary text-[13px] outline-none min-h-[120px] max-h-[320px] flex flex-col backdrop-blur-sm bg-secondary border border-border",
+            "flex-1 rounded-md text-text-primary outline-none min-h-[120px] max-h-[320px] flex flex-col backdrop-blur-sm bg-secondary border border-border",
             disabled && "opacity-50 cursor-not-allowed"
           )}
+          style={{ fontSize: chatFontSize }}
           onClick={() => !disabled && editor.chain().focus().run()}
         >
           <div

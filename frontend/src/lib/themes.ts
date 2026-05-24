@@ -145,7 +145,7 @@ const purpleDark: IdeTheme = {
   },
   chat: {
     background: "#222244",
-    backgroundOpacity: 0.85,
+    backgroundOpacity: 1.0,
     dotColor: "rgba(139, 92, 246, 0.15)",
     userBubbleBg: "rgba(139, 92, 246, 0.10)",
     agentBubbleBg: "rgba(139, 92, 246, 0.05)",

@@ -456,7 +456,7 @@ export default function ChatPane({
         backgroundColor: `color-mix(in srgb, var(--theme-chat-bg) calc(var(--theme-chat-bg-opacity) * 100%), transparent)`,
       }}
     >
-      <div className="dot-overlay" />
+      {/* <div className="dot-overlay" /> */}
       <Header
         statusLabel={statusLabel}
         isReady={isReady}
