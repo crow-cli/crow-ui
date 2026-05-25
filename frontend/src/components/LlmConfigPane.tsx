@@ -14,7 +14,7 @@ import {
 } from "./ui/select";
 import { crowCliConfigApi } from "../lib/rpc";
 import { cn } from "../lib/utils";
-import { KeyRound, Server, Cpu, Plus, Trash2, Check, Loader2, RefreshCw } from "lucide-react";
+import { KeyRound, Server, Cpu, Plus, Trash2, Check, Loader2, RefreshCw, GripVertical } from "lucide-react";
 
 /** Provider shape as stored in config.yaml */
 interface CrowProvider {
@@ -146,6 +146,10 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
   const [fetchingModels, setFetchingModels] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Drag-and-drop model ordering
+  const [orderedModelIds, setOrderedModelIds] = useState<string[]>([]);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
   // Load config and env on mount
   useEffect(() => {
     async function load() {
@@ -164,6 +168,7 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
 
         setConfig(loadedConfig);
         setEnvVars(loadedEnv);
+        setOrderedModelIds(Object.keys(loadedConfig.models || {}));
 
         // Pre-resolve API keys for UI display
         const providers = loadedConfig.providers || {};
@@ -355,6 +360,7 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
       ...prev,
       models: { ...(prev.models || {}), ...newModels },
     }));
+    setOrderedModelIds((prev) => [...prev, ...Object.keys(newModels)]);
     setHasChanges(true);
     setFetchedModels([]);
     setSelectedFetchedIds(new Set());
@@ -372,6 +378,7 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
         [id]: { provider: firstProvider, model: "" },
       },
     }));
+    setOrderedModelIds((prev) => [...prev, id]);
     setSelectedModelId(id);
     setHasChanges(true);
   }, [providers]);
@@ -382,6 +389,7 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
       delete next[id];
       return { ...prev, models: next };
     });
+    setOrderedModelIds((prev) => prev.filter((mId) => mId !== id));
     if (selectedModelId === id) setSelectedModelId("");
     setHasChanges(true);
   }, [selectedModelId]);
@@ -426,9 +434,24 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
         }
       }
 
+      // Build models object in display order so config.yaml preserves ordering
+      const orderedModels: Record<string, CrowModel> = {};
+      for (const id of orderedModelIds) {
+        if (config.models?.[id]) {
+          orderedModels[id] = config.models[id];
+        }
+      }
+      // Also include any models not in orderedModelIds (fallback)
+      for (const [id, model] of Object.entries(config.models || {})) {
+        if (!orderedModels[id]) {
+          orderedModels[id] = model;
+        }
+      }
+
       const configToSave: CrowConfig = {
         ...config,
         providers: newProviders,
+        models: orderedModels,
       };
 
       await crowCliConfigApi.setConfig({ config: configToSave as any });
@@ -440,7 +463,7 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
     } catch (e) {
       setError(`Failed to save: ${e}`);
     }
-  }, [config, providers, resolvedKeys, envVars]);
+  }, [config, providers, resolvedKeys, envVars, orderedModelIds]);
 
   const selectedProvider = selectedProviderId ? providers[selectedProviderId] : null;
   const selectedModel = selectedModelId ? models[selectedModelId] : null;
@@ -538,20 +561,53 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto max-h-48">
-          {Object.entries(models).map(([id, mod]) => {
+          {orderedModelIds.map((id) => {
+            const mod = models[id];
+            if (!mod) return null;
             const isSelected = id === selectedModelId;
+            const isDragOver = dragOverId === id;
             return (
               <div
                 key={id}
+                draggable
                 className={cn(
-                  "group w-full text-left px-3 py-2 text-[12px] hover:bg-hover transition-colors flex items-center gap-2 cursor-pointer",
-                  isSelected && "bg-hover border-l-2 border-l-accent"
+                  "group w-full text-left px-2 py-2 text-[12px] hover:bg-hover transition-colors flex items-center gap-1.5 cursor-pointer",
+                  isSelected && "bg-hover border-l-2 border-l-accent",
+                  isDragOver && "border-t-2 border-t-violet-500"
                 )}
                 onClick={() => {
                   setSelectedModelId(id);
                   setSelectedProviderId("");
                 }}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", id);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDragOverId(id);
+                }}
+                onDragLeave={() => setDragOverId(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const draggedId = e.dataTransfer.getData("text/plain");
+                  if (!draggedId || draggedId === id) {
+                    setDragOverId(null);
+                    return;
+                  }
+                  setOrderedModelIds((prev) => {
+                    const filtered = prev.filter((mId) => mId !== draggedId);
+                    const idx = filtered.indexOf(id);
+                    const next = [...filtered];
+                    next.splice(idx + 1, 0, draggedId);
+                    return next;
+                  });
+                  setDragOverId(null);
+                  setHasChanges(true);
+                }}
               >
+                <GripVertical className="w-3 h-3 text-text-secondary opacity-0 group-hover:opacity-60 cursor-grab shrink-0" />
                 <span className="truncate flex-1">{id}</span>
                 <span className="text-[10px] text-text-secondary shrink-0">{mod.provider}</span>
                 <button
@@ -567,7 +623,7 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
               </div>
             );
           })}
-          {Object.keys(models).length === 0 && (
+          {orderedModelIds.length === 0 && (
             <div className="px-3 py-4 text-[11px] text-text-secondary text-center">
               No models configured
             </div>
