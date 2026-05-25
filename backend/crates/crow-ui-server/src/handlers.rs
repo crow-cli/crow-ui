@@ -162,9 +162,6 @@ pub async fn handle_read_dir(req: ReadDirRequest) -> Result<ReadDirResponse, Str
     let mut result = Vec::new();
     while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') {
-            continue; // Skip hidden files
-        }
         let file_type = entry.file_type().await.map_err(|e| e.to_string())?;
         let is_dir = file_type.is_dir();
         let is_file = file_type.is_file();

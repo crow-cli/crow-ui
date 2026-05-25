@@ -121,7 +121,7 @@ async function startBackend() {
 
   return new Promise<void>((resolve, reject) => {
     // Spawn on a random available port (port 0 lets OS pick)
-    backend = spawn(binaryPath, ["--port", "0"], {
+    backend = spawn(binaryPath, ["--port", "4723"], {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });

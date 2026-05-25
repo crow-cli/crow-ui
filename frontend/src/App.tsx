@@ -24,6 +24,7 @@ import {
   Menu,
   Search,
   Eye,
+  Globe,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -44,6 +45,7 @@ import SettingsPane from "./components/SettingsPane";
 import AgentConfigPane from "./components/AgentConfigPane";
 import SearchPane from "./components/SearchPane";
 import MarkdownPreviewPane from "./components/MarkdownPreviewPane";
+import WebPane from "./components/WebPane";
 import { FolderPicker } from "./components/FolderPicker";
 import CommandPalette, { type Command } from "./components/CommandPalette";
 import BottomBar, { type ActivityId } from "./components/BottomBar";
@@ -97,6 +99,8 @@ function getTabIcon(name: string): ReactNode {
     return <FileJson className="w-3.5 h-3.5 text-zinc-500" />;
   if (name.endsWith("(Preview)"))
     return <Eye className="w-3.5 h-3.5 text-violet-400" />;
+  if (name === "Web")
+    return <Globe className="w-3.5 h-3.5 text-violet-500" />;
   return null;
 }
 
@@ -1038,6 +1042,30 @@ export default function App() {
           }
           break;
         }
+        case "web": {
+          const model = layoutModelRef.current;
+          if (model) {
+            const node = model.getNodeById("web-tab");
+            if (node) {
+              model.doAction(Actions.selectTab("web-tab"));
+            } else {
+              model.doAction(
+                Actions.addTab(
+                  {
+                    type: "tab",
+                    id: "web-tab",
+                    name: "Web",
+                    component: "web",
+                  },
+                  "editor-tabset",
+                  DockLocation.CENTER,
+                  -1,
+                ),
+              );
+            }
+          }
+          break;
+        }
         case "agent_config": {
           const model = layoutModelRef.current;
           if (model) {
@@ -1094,6 +1122,7 @@ export default function App() {
       cmd("extensions", "Show Extensions", "View", "extensions", "Ctrl+Shift+X"),
       cmd("chat", "Open Agent Chat", "View", "chat", "Ctrl+L"),
       cmd("rpc-log", "Open ACP Log", "View", "rpc_log", "Ctrl+Shift+R"),
+      cmd("web", "Open Web Search", "View", "web"),
       cmd("settings", "Open Settings", "View", "settings"),
       cmd("agent-config", "Agent Configuration", "ACP", "agent_config"),
       { id: "font-size-up", label: "Increase Font Size", category: "View", action: () => settings.bumpFontSizes(1) },
@@ -1341,6 +1370,8 @@ export default function App() {
         const previewPath = node.getConfig()?.path as string;
         return <MarkdownPreviewPane key={previewPath} path={previewPath} />;
       }
+      case "web":
+        return <WebPane />;
       default:
         return <div>Unknown component: {component}</div>;
     }

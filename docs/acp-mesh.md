@@ -449,7 +449,7 @@ This arrives at the MCP server (`crow-ui-mcp/main.py`) as a Pydantic-validated a
 
 1. **What if Agent-B's turn never ends?** (infinite tool loop, hanging terminal)
    - The `target_session.prompt()` in the background task will block forever.
-   - **Mitigation:** Add a timeout around the worker prompt (e.g., 5 min) or rely on the user canceling Agent-B, which will make `prompt()` return an error.
+   - **Mitigation:** Rely on the user canceling Agent-B, which will make `prompt()` return an error.
 
 2. **What if the summary prompt itself triggers tool calls?**
    - We ignore them and only aggregate text. But the agent might hang waiting for tool responses.

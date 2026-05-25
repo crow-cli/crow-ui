@@ -40,10 +40,10 @@ pub async fn run_server(app: App, host: &str, port: u16) {
         .route("/ws/acp", get(acp_ws_handler))
         .route("/api/acp/sessions", post(create_session_handler))
         .route("/api/acp/sessions/:session_id/prompt", post(prompt_session_handler))
+        .route("/api/acp/sessions/:session_id/relay", post(relay_session_handler))
         .route("/api/acp/sessions/:session_id/cancel", post(cancel_session_handler))
         .route("/api/acp/sessions/:session_id/queue", get(get_queue_handler).post(queue_action_handler))
         .with_state(app)
-        // Fallback: serve embedded frontend files
         .fallback(get(serve_embedded));
 
     let host_ip: std::net::IpAddr = host.parse().expect("invalid host address");
@@ -968,6 +968,128 @@ async fn queue_action_handler(
             "error": format!("Unknown action: {action}")
         }))).into_response(),
     }
+}
+
+/// Hardcoded summary prompt. Instructs the agent to generate a Markdown summary
+/// without calling any tools.
+const RELAY_SUMMARY_PROMPT: &str = r#"Please summarize what you just accomplished in this session.
+
+Generate a concise Markdown summary that includes:
+- What task was performed
+- What files were read/written/modified
+- Key findings or results
+- Any errors encountered
+
+DO NOT call any tools. Only return Markdown text."#;
+
+/// HTTP handler: POST /api/acp/sessions/:session_id/relay
+/// Cross-agent orchestration: caller → worker → summary → callback to caller.
+/// Body: { blocks: ContentBlock[], from_session_id: string }
+async fn relay_session_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let from_session_id = body
+        .get("from_session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if from_session_id.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "Missing from_session_id. Use /prompt for regular prompts."
+        }))).into_response();
+    }
+
+    let blocks: Vec<acp::ContentBlock> = match body.get("blocks") {
+        Some(arr) => match serde_json::from_value(arr.clone()) {
+            Ok(b) => b,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    "error": format!("Invalid blocks: {e}")
+                }))).into_response();
+            }
+        },
+        None => vec![],
+    };
+
+    let state = app.lock().await;
+    let target_session = match state.acp_sessions.get_session(&session_id).await {
+        Some(s) => s,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": format!("Session not found: {session_id}")
+            }))).into_response();
+        }
+    };
+
+    let caller_session = state.acp_sessions.get_session(&from_session_id).await;
+    drop(state);
+
+    tokio::spawn(async move {
+        // 1. Send original prompt to target (Agent-B) and wait for turn to end.
+        if let Err(e) = target_session.prompt(blocks).await {
+            eprintln!("[relay] target prompt failed for {session_id}: {e}");
+            return;
+        }
+
+        // 2. Target turn ended. Subscribe to events BEFORE sending summary prompt.
+        let mut event_rx = target_session.subscribe();
+
+        let summary_blocks = vec![acp::ContentBlock::Text(acp::TextContent::new(
+            RELAY_SUMMARY_PROMPT
+        ))];
+
+        let target_session_clone = target_session.clone();
+        let prompt_handle = tokio::spawn(async move {
+            target_session_clone.prompt(summary_blocks).await
+        });
+
+        let mut summary_parts = Vec::new();
+
+        while let Ok(event) = event_rx.recv().await {
+            match event {
+                SessionEvent::Update { update, .. } => {
+                    if let Some("agent_message_chunk") = update.get("sessionUpdate").and_then(|v| v.as_str()) {
+                        if let Some(text) = update.get("content").and_then(|c| c.get("text")).and_then(|t| t.as_str()) {
+                            summary_parts.push(text.to_string());
+                        }
+                    } else if let Some("prompt_complete") = update.get("sessionUpdate").and_then(|v| v.as_str()) {
+                        break;
+                    }
+                }
+                SessionEvent::Disconnected { .. } => break,
+            }
+        }
+
+        match prompt_handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => eprintln!("[relay] summary prompt failed for {session_id}: {e}"),
+            Err(e) => eprintln!("[relay] summary prompt task panicked for {session_id}: {e}"),
+        }
+
+        let summary_text = summary_parts.join("");
+
+        // 3. Callback to caller (Agent-A)
+        if let Some(caller) = caller_session {
+            let callback_text = format!(
+                "[relay from session_id={}]\n## Sub-agent completed task\n\n{}",
+                session_id, summary_text
+            );
+            let callback_blocks = vec![acp::ContentBlock::Text(acp::TextContent::new(callback_text))];
+            if let Err(e) = caller.prompt(callback_blocks).await {
+                eprintln!("[relay] callback to {from_session_id} failed: {e}");
+            }
+        } else {
+            eprintln!("[relay] caller session {from_session_id} not found; summary dropped.");
+        }
+    });
+
+    (StatusCode::ACCEPTED, Json(serde_json::json!({
+        "status": "relayed",
+        "message": "10-4 we are on it!"
+    }))).into_response()
 }
 
 /// Serve embedded frontend assets.
