@@ -62,6 +62,23 @@ export interface WorkbenchSettings {
   chat: { fontSize: number };
 }
 
+export interface LlmProvider {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+export interface LlmModel {
+  provider: string;
+  model: string;
+}
+
+export interface LlmSettings {
+  defaultProvider: string | null;
+  defaultModel: string | null;
+  providers: Record<string, LlmProvider>;
+  models: Record<string, LlmModel>;
+}
+
 export interface IdeSettings {
   editor: EditorSettings;
   languages: LanguageSettings;
@@ -70,6 +87,7 @@ export interface IdeSettings {
   explorer: ExplorerSettings;
   folderPicker: FolderPickerSettings;
   workbench: WorkbenchSettings;
+  llm: LlmSettings;
 }
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
@@ -123,6 +141,12 @@ const DEFAULT_SETTINGS: IdeSettings = {
     panel: { fontSize: 13 },
     statusBar: { fontSize: 12 },
     chat: { fontSize: 13 },
+  },
+  llm: {
+    defaultProvider: null,
+    defaultModel: null,
+    providers: {},
+    models: {},
   },
 };
 

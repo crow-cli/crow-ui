@@ -990,6 +990,100 @@ pub struct ClearTileStatesResponse {
     pub success: bool,
 }
 
+// ─── Crow CLI Config Operations ────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct GetCrowCliConfigRequest {}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct GetCrowCliConfigResponse {
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    pub exists: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SetCrowCliConfigRequest {
+    pub config: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SetCrowCliConfigResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct GetCrowCliEnvRequest {}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct GetCrowCliEnvResponse {
+    #[serde(default)]
+    pub vars: Option<serde_json::Value>,
+    pub exists: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SetCrowCliEnvRequest {
+    pub vars: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SetCrowCliEnvResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+// ─── Fetch Provider Models ────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FetchProviderModelsRequest {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProviderModelEntry {
+    pub id: String,
+    pub owned_by: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FetchProviderModelsResponse {
+    pub models: Vec<ProviderModelEntry>,
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
 // ─── Error Response ────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, TS)]

@@ -97,6 +97,16 @@ import type {
   GetExplorerStateRequest,
   GetExplorerStateResponse,
   SaveExplorerStateRequest,
+  GetCrowCliConfigRequest,
+  GetCrowCliConfigResponse,
+  SetCrowCliConfigRequest,
+  SetCrowCliConfigResponse,
+  GetCrowCliEnvRequest,
+  GetCrowCliEnvResponse,
+  SetCrowCliEnvRequest,
+  SetCrowCliEnvResponse,
+  FetchProviderModelsRequest,
+  FetchProviderModelsResponse,
 } from "../bindings";
 
 // ─── Helper ────────────────────────────────────────────────────────────────
@@ -269,4 +279,23 @@ export const acpApi = {
 
   terminalResize: (req: AcpTerminalResizeRequest): Promise<AcpTerminalResizeResponse> =>
     invoke("acp_terminal_resize", req),
+};
+
+// ─── Crow CLI Config API ───────────────────────────────────────────────────
+
+export const crowCliConfigApi = {
+  getConfig: (req?: GetCrowCliConfigRequest): Promise<GetCrowCliConfigResponse> =>
+    invoke("get_crow_cli_config", req ?? {}),
+
+  setConfig: (req: SetCrowCliConfigRequest): Promise<SetCrowCliConfigResponse> =>
+    invoke("set_crow_cli_config", req),
+
+  getEnv: (req?: GetCrowCliEnvRequest): Promise<GetCrowCliEnvResponse> =>
+    invoke("get_crow_cli_env", req ?? {}),
+
+  setEnv: (req: SetCrowCliEnvRequest): Promise<SetCrowCliEnvResponse> =>
+    invoke("set_crow_cli_env", req),
+
+  fetchModels: (req: FetchProviderModelsRequest): Promise<FetchProviderModelsResponse> =>
+    invoke("fetch_provider_models", req),
 };

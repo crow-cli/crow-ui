@@ -25,6 +25,7 @@ import {
   Search,
   Eye,
   Globe,
+  Brain,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -43,6 +44,7 @@ import ChatPane from "./components/ChatPane";
 import RpcLogPanel from "./components/RpcLogPanel";
 import SettingsPane from "./components/SettingsPane";
 import AgentConfigPane from "./components/AgentConfigPane";
+import LlmConfigPane from "./components/LlmConfigPane";
 import SearchPane from "./components/SearchPane";
 import MarkdownPreviewPane from "./components/MarkdownPreviewPane";
 import WebPane from "./components/WebPane";
@@ -101,6 +103,8 @@ function getTabIcon(name: string): ReactNode {
     return <Eye className="w-3.5 h-3.5 text-violet-400" />;
   if (name === "Web")
     return <Globe className="w-3.5 h-3.5 text-violet-500" />;
+  if (name === "LLM Config")
+    return <Brain className="w-3.5 h-3.5 text-violet-500" />;
   return null;
 }
 
@@ -1090,6 +1094,30 @@ export default function App() {
           }
           break;
         }
+        case "llm_config": {
+          const model = layoutModelRef.current;
+          if (model) {
+            const node = model.getNodeById("llm-config-tab");
+            if (node) {
+              model.doAction(Actions.selectTab("llm-config-tab"));
+            } else {
+              model.doAction(
+                Actions.addTab(
+                  {
+                    type: "tab",
+                    id: "llm-config-tab",
+                    name: "LLM Config",
+                    component: "llm-config",
+                  },
+                  "editor-tabset",
+                  DockLocation.CENTER,
+                  -1,
+                ),
+              );
+            }
+          }
+          break;
+        }
       }
     },
     [saveFile, closeTab],
@@ -1125,6 +1153,7 @@ export default function App() {
       cmd("web", "Open Web Search", "View", "web"),
       cmd("settings", "Open Settings", "View", "settings"),
       cmd("agent-config", "Agent Configuration", "ACP", "agent_config"),
+      cmd("llm-config", "LLM Provider Configuration", "ACP", "llm_config"),
       { id: "font-size-up", label: "Increase Font Size", category: "View", action: () => settings.bumpFontSizes(1) },
       { id: "font-size-down", label: "Decrease Font Size", category: "View", action: () => settings.bumpFontSizes(-1) },
     ];
@@ -1359,6 +1388,16 @@ export default function App() {
       case "agent-config":
         return (
           <AgentConfigPane
+            onClose={() => {
+              if (layoutModelRef.current) {
+                layoutModelRef.current.doAction(Actions.deleteTab(node.getId()));
+              }
+            }}
+          />
+        );
+      case "llm-config":
+        return (
+          <LlmConfigPane
             onClose={() => {
               if (layoutModelRef.current) {
                 layoutModelRef.current.doAction(Actions.deleteTab(node.getId()));

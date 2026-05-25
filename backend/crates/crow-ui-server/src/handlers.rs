@@ -840,6 +840,148 @@ pub fn handle_update_setting(state: &AppState, req: UpdateSettingRequest) -> Res
 }
 
 // ---------------------------------------------------------------------------
+// Crow CLI Config handlers (config.yaml + .env in ~/.crow)
+// ---------------------------------------------------------------------------
+
+/// Read and parse `~/.crow/config.yaml`.
+pub fn handle_get_crow_cli_config(state: &AppState, _req: GetCrowCliConfigRequest) -> Result<GetCrowCliConfigResponse, String> {
+    let config_path = state.config_dir.join("config.yaml");
+    if !config_path.exists() {
+        return Ok(GetCrowCliConfigResponse {
+            config: None,
+            exists: false,
+            error: None,
+        });
+    }
+
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("failed to read config.yaml: {e}"))?;
+
+    let config: serde_json::Value = serde_yml::from_str(&content)
+        .map_err(|e| format!("failed to parse config.yaml: {e}"))?;
+
+    Ok(GetCrowCliConfigResponse {
+        config: Some(config),
+        exists: true,
+        error: None,
+    })
+}
+
+/// Write `config.yaml` in `~/.crow`.
+pub fn handle_set_crow_cli_config(state: &AppState, req: SetCrowCliConfigRequest) -> Result<SetCrowCliConfigResponse, String> {
+    let config_path = state.config_dir.join("config.yaml");
+
+    let yaml_str = serde_yml::to_string(&req.config)
+        .map_err(|e| format!("failed to serialize config: {e}"))?;
+
+    std::fs::write(&config_path, yaml_str)
+        .map_err(|e| format!("failed to write config.yaml: {e}"))?;
+
+    Ok(SetCrowCliConfigResponse { success: true, error: None })
+}
+
+/// Read `~/.crow/.env` as key-value pairs.
+pub fn handle_get_crow_cli_env(state: &AppState, _req: GetCrowCliEnvRequest) -> Result<GetCrowCliEnvResponse, String> {
+    let env_path = state.config_dir.join(".env");
+    if !env_path.exists() {
+        return Ok(GetCrowCliEnvResponse {
+            vars: None,
+            exists: false,
+            error: None,
+        });
+    }
+
+    let content = std::fs::read_to_string(&env_path)
+        .map_err(|e| format!("failed to read .env: {e}"))?;
+
+    let mut vars = serde_json::Map::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            vars.insert(k.trim().to_string(), serde_json::Value::String(v.trim().to_string()));
+        }
+    }
+
+    Ok(GetCrowCliEnvResponse {
+        vars: Some(serde_json::Value::Object(vars)),
+        exists: true,
+        error: None,
+    })
+}
+
+/// Write `~/.crow/.env` from key-value pairs.
+pub fn handle_set_crow_cli_env(state: &AppState, req: SetCrowCliEnvRequest) -> Result<SetCrowCliEnvResponse, String> {
+    let env_path = state.config_dir.join(".env");
+
+    let mut lines = Vec::new();
+    if let serde_json::Value::Object(map) = &req.vars {
+        for (k, v) in map {
+            lines.push(format!("{}={}", k, v.as_str().unwrap_or("")));
+        }
+    }
+
+    std::fs::write(&env_path, lines.join("\n") + "\n")
+        .map_err(|e| format!("failed to write .env: {e}"))?;
+
+    Ok(SetCrowCliEnvResponse { success: true, error: None })
+}
+
+/// Fetch available models from an OpenAI-compatible /models endpoint.
+pub async fn handle_fetch_provider_models(
+    _state: &AppState,
+    req: FetchProviderModelsRequest,
+) -> Result<FetchProviderModelsResponse, String> {
+    let base_url = req.base_url.trim_end_matches('/');
+    let url = format!("{}/models", base_url);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", req.api_key))
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Provider returned {}: {}", status, body));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("failed to parse response JSON: {e}"))?;
+
+    let mut models = Vec::new();
+    if let Some(arr) = data.get("data").and_then(|v| v.as_array()) {
+        for model in arr {
+            let id = model.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let owned_by = model.get("owned_by").and_then(|v| v.as_str()).unwrap_or("unknown");
+            models.push(ProviderModelEntry {
+                id: id.to_string(),
+                owned_by: owned_by.to_string(),
+            });
+        }
+    }
+
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+
+    Ok(FetchProviderModelsResponse {
+        models,
+        success: true,
+        error: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

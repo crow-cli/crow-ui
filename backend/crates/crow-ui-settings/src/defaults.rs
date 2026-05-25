@@ -24,6 +24,7 @@ pub fn builtin_defaults() -> Value {
     add_notebook_defaults(&mut m);
     add_language_specific_defaults(&mut m);
     add_acp_defaults(&mut m);
+    add_llm_defaults(&mut m);
     ins(&mut m, "workbench.colorTheme", json!("purple-dark"));
     Value::Object(m)
 }
@@ -764,6 +765,13 @@ fn add_acp_defaults(m: &mut Map<String, Value>) {
     );
 }
 
+fn add_llm_defaults(m: &mut Map<String, Value>) {
+    ins(m, "llm.defaultProvider", Value::Null);
+    ins(m, "llm.defaultModel", Value::Null);
+    ins(m, "llm.providers", json!({}));
+    ins(m, "llm.models", json!({}));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -855,5 +863,16 @@ mod tests {
         let d = builtin_defaults();
         let count = d.as_object().unwrap().len();
         assert!(count > 350, "Expected 350+ defaults, got {count}");
+    }
+
+    #[test]
+    fn has_llm_defaults() {
+        let d = builtin_defaults();
+        assert!(d.get("llm.providers").is_some());
+        assert!(d.get("llm.models").is_some());
+        assert!(d.get("llm.defaultProvider").is_some());
+        assert!(d.get("llm.defaultModel").is_some());
+        assert_eq!(d["llm.providers"], json!({}));
+        assert_eq!(d["llm.models"], json!({}));
     }
 }

@@ -655,6 +655,25 @@ async fn handle_message(text: &str, app: &App) -> Value {
             .map_err(|e| e.to_string())
             .and_then(|req| handlers::handle_update_setting(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
 
+        // Crow CLI config methods
+        "get_crow_cli_config" => serde_json::from_value::<crate::protocol::GetCrowCliConfigRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_crow_cli_config(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "set_crow_cli_config" => serde_json::from_value::<crate::protocol::SetCrowCliConfigRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_set_crow_cli_config(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "get_crow_cli_env" => serde_json::from_value::<crate::protocol::GetCrowCliEnvRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_crow_cli_env(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "set_crow_cli_env" => serde_json::from_value::<crate::protocol::SetCrowCliEnvRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_set_crow_cli_env(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+
+        "fetch_provider_models" => match serde_json::from_value::<crate::protocol::FetchProviderModelsRequest>(request.params) {
+            Ok(req) => handlers::handle_fetch_provider_models(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+
         // ACP session config
         "set_session_config_option" => match serde_json::from_value::<crate::protocol::SetSessionConfigOptionRequest>(request.params) {
             Ok(req) => handlers::handle_set_session_config_option(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
