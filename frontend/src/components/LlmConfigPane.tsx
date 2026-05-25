@@ -149,6 +149,7 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
   // Drag-and-drop model ordering
   const [orderedModelIds, setOrderedModelIds] = useState<string[]>([]);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragOverPos, setDragOverPos] = useState<"before" | "after">("after");
 
   // Load config and env on mount
   useEffect(() => {
@@ -573,7 +574,8 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
                 className={cn(
                   "group w-full text-left px-2 py-2 text-[12px] hover:bg-hover transition-colors flex items-center gap-1.5 cursor-pointer",
                   isSelected && "bg-hover border-l-2 border-l-accent",
-                  isDragOver && "border-t-2 border-t-violet-500"
+                  isDragOver && dragOverPos === "before" && "border-t-2 border-t-violet-500",
+                  isDragOver && dragOverPos === "after" && "border-b-2 border-b-violet-500"
                 )}
                 onClick={() => {
                   setSelectedModelId(id);
@@ -586,24 +588,36 @@ export default function LlmConfigPane({ onClose }: LlmConfigPaneProps) {
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const midY = rect.top + rect.height / 2;
+                  const pos = e.clientY < midY ? "before" : "after";
                   setDragOverId(id);
+                  setDragOverPos(pos);
                 }}
-                onDragLeave={() => setDragOverId(null)}
+                onDragLeave={() => {
+                  setDragOverId(null);
+                  setDragOverPos("after");
+                }}
                 onDrop={(e) => {
                   e.preventDefault();
                   const draggedId = e.dataTransfer.getData("text/plain");
                   if (!draggedId || draggedId === id) {
                     setDragOverId(null);
+                    setDragOverPos("after");
                     return;
                   }
                   setOrderedModelIds((prev) => {
                     const filtered = prev.filter((mId) => mId !== draggedId);
-                    const idx = filtered.indexOf(id);
+                    let idx = filtered.indexOf(id);
+                    if (idx === -1) idx = filtered.length;
+                    // If dropping in top half, insert before; else after
+                    const insertAt = dragOverPos === "before" ? idx : idx + 1;
                     const next = [...filtered];
-                    next.splice(idx + 1, 0, draggedId);
+                    next.splice(insertAt, 0, draggedId);
                     return next;
                   });
                   setDragOverId(null);
+                  setDragOverPos("after");
                   setHasChanges(true);
                 }}
               >
