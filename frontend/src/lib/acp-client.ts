@@ -63,10 +63,12 @@ export interface AcpNotification {
 }
 
 export interface AgentConfig {
+  id?: string;
   name: string;
   command: string;
   args?: string[];
   env?: string[];
+  configFile?: string;
 }
 
 export interface SessionInfo {

@@ -870,12 +870,25 @@ impl AcpSessionManager {
         args: Vec<String>,
         env: Vec<String>,
         cwd: String,
+        config_file: Option<String>,
         forward_tx: broadcast::Sender<SessionEvent>,
     ) -> Result<Arc<AcpSession>> {
+        let mut final_args = args;
+        if let Some(path) = config_file {
+            let expanded = if path.starts_with("~/") {
+                std::env::var("HOME")
+                    .map(|home| format!("{}{}", home, &path[1..]))
+                    .unwrap_or(path)
+            } else {
+                path
+            };
+            final_args.push("--config-file".to_string());
+            final_args.push(expanded);
+        }
         let config = AgentConfig {
             name,
             command,
-            args,
+            args: final_args,
             env,
         };
         let session = AcpSession::create(&self.agent_manager, config, cwd).await?;

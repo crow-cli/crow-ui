@@ -489,10 +489,23 @@ pub async fn handle_acp_relay(state: &AppState, req: AcpRelayRequest) -> Result<
 }
 
 pub async fn handle_acp_spawn(state: &AppState, req: AcpSpawnRequest) -> Result<AcpSpawnResponse, String> {
+    let mut args = req.args;
+    if let Some(path) = req.config_file {
+        let expanded = if path.starts_with("~/") {
+            std::env::var("HOME")
+                .map(|home| format!("{}{}", home, &path[1..]))
+                .unwrap_or(path)
+        } else {
+            path
+        };
+        args.push("--config-file".to_string());
+        args.push(expanded);
+    }
+
     let config = crow_ui_acp::AgentConfig {
         name: req.name,
         command: req.command,
-        args: req.args,
+        args,
         env: req.env,
     };
 
@@ -979,6 +992,115 @@ pub async fn handle_fetch_provider_models(
         success: true,
         error: None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Agent Profile handlers
+// ---------------------------------------------------------------------------
+
+fn profiles_dir(state: &AppState) -> std::path::PathBuf {
+    state.config_dir.join("configs")
+}
+
+fn prompts_dir(state: &AppState) -> std::path::PathBuf {
+    state.config_dir.join("prompts")
+}
+
+pub fn handle_list_agent_profiles(state: &AppState, _req: ListAgentProfilesRequest) -> Result<ListAgentProfilesResponse, String> {
+    let dir = profiles_dir(state);
+    if !dir.exists() {
+        return Ok(ListAgentProfilesResponse { profiles: vec![] });
+    }
+
+    let mut profiles = Vec::new();
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".yaml") || name.ends_with(".yml") {
+            profiles.push(name.trim_end_matches(".yaml").trim_end_matches(".yml").to_string());
+        }
+    }
+    profiles.sort();
+    Ok(ListAgentProfilesResponse { profiles })
+}
+
+pub fn handle_get_agent_profile(state: &AppState, req: GetAgentProfileRequest) -> Result<GetAgentProfileResponse, String> {
+    let config_path = profiles_dir(state).join(format!("{}.yaml", req.name));
+    let prompt_path = prompts_dir(state).join(format!("{}.jinja2", req.name));
+
+    let mut max_retries_per_step = 3;
+    let mut max_compact_tokens = 190_000;
+    let mut config_exists = false;
+
+    if config_path.exists() {
+        config_exists = true;
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Ok(yaml) = serde_yml::from_str::<serde_json::Value>(&content) {
+                if let Some(v) = yaml.get("max_retries_per_step").and_then(|v| v.as_i64()) {
+                    max_retries_per_step = v as i32;
+                }
+                if let Some(v) = yaml.get("MAX_COMPACT_TOKENS").and_then(|v| v.as_i64()) {
+                    max_compact_tokens = v as i32;
+                }
+            }
+        }
+    }
+
+    let (prompt, prompt_exists) = if prompt_path.exists() {
+        (std::fs::read_to_string(&prompt_path).unwrap_or_default(), true)
+    } else {
+        (String::new(), false)
+    };
+
+    Ok(GetAgentProfileResponse {
+        name: req.name,
+        max_retries_per_step,
+        max_compact_tokens,
+        prompt,
+        exists: config_exists || prompt_exists,
+    })
+}
+
+pub async fn handle_save_agent_profile(state: &AppState, req: SaveAgentProfileRequest) -> Result<SaveAgentProfileResponse, String> {
+    let profiles = profiles_dir(state);
+    let prompts = prompts_dir(state);
+
+    std::fs::create_dir_all(&profiles).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&prompts).map_err(|e| e.to_string())?;
+
+    let config_path = profiles.join(format!("{}.yaml", req.name));
+    let prompt_path = prompts.join(format!("{}.jinja2", req.name));
+
+    let config_yaml = format!(
+        "max_retries_per_step: {}\nMAX_COMPACT_TOKENS: {}\nsystem_prompt_path: {}\n",
+        req.max_retries_per_step,
+        req.max_compact_tokens,
+        prompt_path.to_string_lossy()
+    );
+
+    tokio::fs::write(&config_path, config_yaml)
+        .await
+        .map_err(|e| format!("failed to write config: {e}"))?;
+
+    tokio::fs::write(&prompt_path, &req.prompt)
+        .await
+        .map_err(|e| format!("failed to write prompt: {e}"))?;
+
+    Ok(SaveAgentProfileResponse { success: true })
+}
+
+pub fn handle_delete_agent_profile(state: &AppState, req: DeleteAgentProfileRequest) -> Result<DeleteAgentProfileResponse, String> {
+    let config_path = profiles_dir(state).join(format!("{}.yaml", req.name));
+    let prompt_path = prompts_dir(state).join(format!("{}.jinja2", req.name));
+
+    if config_path.exists() {
+        std::fs::remove_file(&config_path).map_err(|e| e.to_string())?;
+    }
+    if prompt_path.exists() {
+        std::fs::remove_file(&prompt_path).map_err(|e| e.to_string())?;
+    }
+
+    Ok(DeleteAgentProfileResponse { success: true })
 }
 
 // ---------------------------------------------------------------------------

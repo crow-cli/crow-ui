@@ -674,6 +674,21 @@ async fn handle_message(text: &str, app: &App) -> Value {
             Err(e) => Err(e.to_string()),
         },
 
+        // Agent profile methods
+        "list_agent_profiles" => serde_json::from_value::<crate::protocol::ListAgentProfilesRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_list_agent_profiles(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "get_agent_profile" => serde_json::from_value::<crate::protocol::GetAgentProfileRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_get_agent_profile(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+        "save_agent_profile" => match serde_json::from_value::<crate::protocol::SaveAgentProfileRequest>(request.params) {
+            Ok(req) => handlers::handle_save_agent_profile(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "delete_agent_profile" => serde_json::from_value::<crate::protocol::DeleteAgentProfileRequest>(request.params)
+            .map_err(|e| e.to_string())
+            .and_then(|req| handlers::handle_delete_agent_profile(&state, req).map(|r| serde_json::to_value(r).unwrap_or_default())),
+
         // ACP session config
         "set_session_config_option" => match serde_json::from_value::<crate::protocol::SetSessionConfigOptionRequest>(request.params) {
             Ok(req) => handlers::handle_set_session_config_option(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
@@ -779,11 +794,12 @@ async fn create_session_handler(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
         .unwrap_or_default();
     let cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
+    let config_file = body.get("configFile").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let state = app.lock().await;
     let forward_tx = state.acp_session_events_tx.clone();
 
-    match state.acp_sessions.create_session(name, command, args, env, cwd, forward_tx).await {
+    match state.acp_sessions.create_session(name, command, args, env, cwd, config_file, forward_tx).await {
         Ok(session) => {
             (StatusCode::OK, Json(serde_json::json!({
                 "sessionId": session.session_id,

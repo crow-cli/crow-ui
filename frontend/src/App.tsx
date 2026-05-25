@@ -45,6 +45,7 @@ import RpcLogPanel from "./components/RpcLogPanel";
 import SettingsPane from "./components/SettingsPane";
 import AgentConfigPane from "./components/AgentConfigPane";
 import LlmConfigPane from "./components/LlmConfigPane";
+import AgentProfilePane from "./components/AgentProfilePane";
 import SearchPane from "./components/SearchPane";
 import MarkdownPreviewPane from "./components/MarkdownPreviewPane";
 import WebPane from "./components/WebPane";
@@ -105,6 +106,8 @@ function getTabIcon(name: string): ReactNode {
     return <Globe className="w-3.5 h-3.5 text-violet-500" />;
   if (name === "LLM Config")
     return <Brain className="w-3.5 h-3.5 text-violet-500" />;
+  if (name === "Agent Profile")
+    return <Sparkles className="w-3.5 h-3.5 text-emerald-400" />;
   return null;
 }
 
@@ -1118,6 +1121,30 @@ export default function App() {
           }
           break;
         }
+        case "agent_profile": {
+          const model = layoutModelRef.current;
+          if (model) {
+            const node = model.getNodeById("agent-profile-tab");
+            if (node) {
+              model.doAction(Actions.selectTab("agent-profile-tab"));
+            } else {
+              model.doAction(
+                Actions.addTab(
+                  {
+                    type: "tab",
+                    id: "agent-profile-tab",
+                    name: "Agent Profile",
+                    component: "agent-profile",
+                  },
+                  "editor-tabset",
+                  DockLocation.CENTER,
+                  -1,
+                ),
+              );
+            }
+          }
+          break;
+        }
       }
     },
     [saveFile, closeTab],
@@ -1154,6 +1181,7 @@ export default function App() {
       cmd("settings", "Open Settings", "View", "settings"),
       cmd("agent-config", "Agent Configuration", "ACP", "agent_config"),
       cmd("llm-config", "LLM Provider Configuration", "ACP", "llm_config"),
+      cmd("agent-profile", "Agent Profile Editor", "ACP", "agent_profile"),
       { id: "font-size-up", label: "Increase Font Size", category: "View", action: () => settings.bumpFontSizes(1) },
       { id: "font-size-down", label: "Decrease Font Size", category: "View", action: () => settings.bumpFontSizes(-1) },
     ];
@@ -1401,6 +1429,60 @@ export default function App() {
             onClose={() => {
               if (layoutModelRef.current) {
                 layoutModelRef.current.doAction(Actions.deleteTab(node.getId()));
+              }
+            }}
+          />
+        );
+      case "agent-profile":
+        return (
+          <AgentProfilePane
+            isActive={node.isSelected()}
+            onSpawn={(profileName) => {
+              if (workspaceRoot && agentConfigRef.current) {
+                const config: AgentConfig = {
+                  ...agentConfigRef.current,
+                  configFile: `~/.crow/configs/${profileName}.yaml`,
+                };
+                acpStore.createSession(config, workspaceRoot)
+                  .then((sessionId) => {
+                    // Open a chat tab for this session
+                    const model = layoutModelRef.current;
+                    if (model) {
+                      const chatId = `chat-${Date.now()}`;
+                      let targetNode = model.getNodeById("chat-tabset");
+                      if (!targetNode) {
+                        model.visitNodes((n) => {
+                          if (n.getType() === "tabset") {
+                            const children = n.getChildren();
+                            if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === "chat")) {
+                              targetNode = n;
+                              return false;
+                            }
+                          }
+                          return true;
+                        });
+                      }
+                      const tabJson = {
+                        type: "tab" as const,
+                        name: "Agent Chat",
+                        component: "chat" as const,
+                        config: { sessionId },
+                        id: chatId,
+                      };
+                      if (targetNode) {
+                        model.doAction(Actions.addTab(tabJson, targetNode.getId(), DockLocation.CENTER, -1, true));
+                      } else {
+                        const editorTabset = model.getNodeById("editor-tabset");
+                        if (editorTabset) {
+                          const centerRow = editorTabset.getParent();
+                          if (centerRow && centerRow.getType() === "row") {
+                            model.doAction(Actions.addNode(tabJson, centerRow.getId(), DockLocation.RIGHT, -1, true));
+                          }
+                        }
+                      }
+                    }
+                  })
+                  .catch(console.error);
               }
             }}
           />

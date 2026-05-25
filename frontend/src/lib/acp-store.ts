@@ -32,12 +32,8 @@ export interface AcpNotification {
   data: unknown;
 }
 
-export interface AgentConfig {
-  id?: string;
-  name: string;
-  command: string;
-  args?: string[];
-}
+import type { AgentConfig } from "./acp-client";
+export type { AgentConfig };
 
 export interface SessionConfigOption {
   id: string;
@@ -143,7 +139,9 @@ export async function createSession(
       name: config.name,
       command: config.command,
       args: config.args || [],
+      env: config.env || [],
       cwd,
+      configFile: config.configFile || null,
     }),
   });
 

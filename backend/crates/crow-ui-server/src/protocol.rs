@@ -435,6 +435,69 @@ pub struct AgentConfig {
     pub env: Vec<String>,
 }
 
+// ─── Agent Profile Operations ──────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ListAgentProfilesRequest {}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ListAgentProfilesResponse {
+    pub profiles: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct GetAgentProfileRequest {
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct GetAgentProfileResponse {
+    pub name: String,
+    pub max_retries_per_step: i32,
+    pub max_compact_tokens: i32,
+    pub prompt: String,
+    pub exists: bool,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SaveAgentProfileRequest {
+    pub name: String,
+    pub max_retries_per_step: i32,
+    pub max_compact_tokens: i32,
+    pub prompt: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SaveAgentProfileResponse {
+    pub success: bool,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DeleteAgentProfileRequest {
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DeleteAgentProfileResponse {
+    pub success: bool,
+}
+
 #[derive(Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -468,6 +531,8 @@ pub struct AcpSpawnRequest {
     #[serde(default)]
     pub env: Vec<String>,
     pub cwd: String,
+    #[serde(default)]
+    pub config_file: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, TS)]
