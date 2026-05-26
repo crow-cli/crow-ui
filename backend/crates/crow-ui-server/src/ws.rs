@@ -1113,7 +1113,10 @@ async fn relay_session_handler(
                 session_id, summary_text
             );
             let callback_blocks = vec![acp::ContentBlock::Text(acp::TextContent::new(callback_text))];
-            if let Err(e) = caller.prompt(callback_blocks).await {
+            if let Err(e) = caller.prompt_with_behavior(
+                callback_blocks,
+                crate::acp_session::PromptBehavior::AddToQueue,
+            ).await {
                 eprintln!("[relay] callback to {from_session_id} failed: {e}");
             }
         } else {
