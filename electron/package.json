@@ -28,6 +28,7 @@
   "build": {
     "appId": "com.crow.ui",
     "productName": "crow-ui",
+    "afterPack": "./afterPack.js",
     "directories": {
       "buildResources": "build",
       "output": "dist"

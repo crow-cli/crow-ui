@@ -1,0 +1,6 @@
+#!/bin/bash
+# AppImage entry point — disable Electron sandbox because AppImages cannot
+# use setuid helpers and user namespace support varies across distros.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+export ELECTRON_DISABLE_SANDBOX=1
+exec "${HERE}/crow-ui" "$@"

@@ -1,0 +1,14 @@
+Package: crow-ui
+Version: 0.1.0
+License: unknown
+Vendor: Thomas Wood <odell.wood@gmail.com>
+Architecture: amd64
+Maintainer: Thomas Wood <odell.wood@gmail.com>
+Installed-Size: 307634
+Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0
+Recommends: libappindicator3-1
+Section: default
+Priority: optional
+Homepage: https://github.com/crow-cli/crow-ui
+Description: 
+  crow-ui — AI-powered code editor

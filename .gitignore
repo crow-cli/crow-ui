@@ -4,5 +4,5 @@ target
 electron/node_modules
 electron/dist
 electron/out
-
+electron/deb-extract
 *.log

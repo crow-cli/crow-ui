@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=${productName}
+Exec=${execPath} %U
+Terminal=false
+Type=Application
+Icon=${icon}
+StartupWMClass=${startupWMClass}
+Comment=${description}
+Categories=${categories};
