@@ -408,7 +408,9 @@ body {
 .ProseMirror {
     outline: none;
     min-height: 20px;
-    line-height: 1.5;
+    line-height: 1.6;
+    font-family: var(--theme-chat-font, "Quantico", monospace);
+    letter-spacing: 0.02em;
 }
 
 .ProseMirror p {
@@ -421,6 +423,8 @@ body {
     color: var(--theme-text-tertiary);
     pointer-events: none;
     height: 0;
+    font-style: italic;
+    opacity: 0.6;
 }
 
 .ProseMirror img {
@@ -430,6 +434,48 @@ body {
     border: 1px solid var(--theme-border);
     display: inline-block;
     vertical-align: middle;
+}
+
+/* Chat prompt input — distinctive command-line aesthetic */
+.chat-prompt-editor {
+    position: relative;
+    border-left: 2px solid var(--theme-accent-25);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chat-prompt-editor:focus-within {
+    border-left-color: var(--theme-accent);
+    box-shadow: inset 0 0 0 1px var(--theme-accent-15), 0 0 20px var(--theme-accent-faint);
+}
+
+.chat-prompt-editor .ProseMirror {
+    padding: 2px 0;
+}
+
+/* Prompt placeholder — subtle prompt char */
+.chat-prompt-editor .ProseMirror p.is-editor-empty:first-child::before {
+    content: "> " attr(data-placeholder);
+    color: var(--theme-accent-40);
+    font-style: normal;
+    opacity: 0.5;
+}
+
+/* Send button in prompt */
+.chat-prompt-send {
+    background: var(--theme-accent-15);
+    border: 1px solid var(--theme-accent-25);
+    color: var(--theme-accent-light);
+    transition: all 0.15s ease;
+}
+
+.chat-prompt-send:hover {
+    background: var(--theme-accent-25);
+    border-color: var(--theme-accent-40);
+    box-shadow: 0 0 12px var(--theme-accent-faint);
+}
+
+.chat-prompt-send:active {
+    transform: scale(0.95);
 }
 
 /* Mention chip */
@@ -510,6 +556,14 @@ body {
 }
 
 /* ── Streamdown / Markdown HUD Styling ─────────────────────────────────── */
+
+/* Agent messages — configurable chat font */
+.chat-messages .user-message,
+.chat-messages .agent-message,
+.chat-messages .streamdown {
+    font-family: var(--theme-chat-font, "Quantico", monospace);
+    letter-spacing: 0.01em;
+}
 
 /* Markdown container */
 .chat-messages .markdown-body,

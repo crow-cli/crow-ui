@@ -853,7 +853,7 @@ function UserMessage({ text }: { text: string }) {
   return (
     <Message>
       <div
-        className="inline-block max-w-[85%] rounded-lg px-4 py-2.5 font-mono leading-relaxed text-text-primary"
+        className="user-message inline-block max-w-[85%] rounded-lg px-4 py-2.5 leading-relaxed text-text-primary"
         style={{
           backgroundColor: "var(--theme-accent-10)",
           border: "1px solid var(--theme-accent-20)",
@@ -882,7 +882,7 @@ function AgentMessage({
 }) {
   return (
     <Message>
-      <div className="leading-relaxed text-text-primary">
+      <div className="agent-message leading-relaxed text-text-primary">
         <Streamdown
           plugins={{ mermaid, math }}
           isAnimating={isStreaming}
@@ -899,7 +899,7 @@ function AgentMessage({
 function ThinkingBlock({ text }: { text: string }) {
   return (
     <Message>
-      <details open className="text-text-secondary opacity-70">
+      <details open className="agent-message text-text-secondary opacity-70">
         <summary className="cursor-pointer select-none">Thinking</summary>
         <div className="mt-1 border-l-2 border-text-secondary pl-3 whitespace-pre-wrap">
           {text}

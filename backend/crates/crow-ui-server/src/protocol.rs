@@ -433,6 +433,8 @@ pub struct AgentConfig {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: Vec<String>,
+    #[serde(default)]
+    pub mcp_server_ids: Vec<String>,
 }
 
 // ─── Agent Profile Operations ──────────────────────────────────────────────
@@ -498,26 +500,55 @@ pub struct DeleteAgentProfileResponse {
     pub success: bool,
 }
 
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct McpServerConfig {
     pub name: String,
     pub transport: McpTransport,
-    pub url: String,
 }
 
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum McpTransport {
     #[serde(rename = "stdio")]
-    Stdio { command: String, args: Vec<String> },
+    Stdio {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        env: Vec<EnvVar>,
+    },
     #[serde(rename = "http")]
-    Http { url: String },
+    Http {
+        url: String,
+        #[serde(default)]
+        headers: Vec<HttpHeader>,
+    },
     #[serde(rename = "sse")]
-    Sse { url: String },
+    Sse {
+        url: String,
+        #[serde(default)]
+        headers: Vec<HttpHeader>,
+    },
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EnvVar {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct HttpHeader {
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Serialize, Deserialize, TS)]
@@ -533,6 +564,8 @@ pub struct AcpSpawnRequest {
     pub cwd: String,
     #[serde(default)]
     pub config_file: Option<String>,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
 }
 
 #[derive(Serialize, Deserialize, TS)]

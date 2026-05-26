@@ -45,6 +45,7 @@ import {
 
 import { cacheFile } from "./file-cache";
 import { getModelContent, setModelContent } from "../components/EditorPane";
+import { getSetting } from "./settings";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,26 @@ export interface AcpNotification {
   data: unknown;
 }
 
+export interface EnvVar {
+  name: string;
+  value: string;
+}
+
+export interface HttpHeader {
+  name: string;
+  value: string;
+}
+
+export type McpTransport =
+  | { type: "stdio"; command: string; args: string[]; env: EnvVar[] }
+  | { type: "http"; url: string; headers: HttpHeader[] }
+  | { type: "sse"; url: string; headers: HttpHeader[] };
+
+export interface McpServerConfig {
+  name: string;
+  transport: McpTransport;
+}
+
 export interface AgentConfig {
   id?: string;
   name: string;
@@ -69,6 +90,7 @@ export interface AgentConfig {
   args?: string[];
   env?: string[];
   configFile?: string;
+  mcpServerIds?: string[];
 }
 
 export interface SessionInfo {
@@ -224,9 +246,16 @@ export class AcpClient {
 
     // 5. Create session
     this.setStatus("creating_session");
+
+    // Load enabled MCP servers for this agent from settings
+    const allMcpServers = await getSetting<McpServerConfig[]>("acp.mcpServers", []);
+    const mcpServers = (allMcpServers || []).filter((mcp) =>
+      this.agentConfig.mcpServerIds?.includes(mcp.name)
+    );
+
     const sessionResult: NewSessionResponse = await this.connection.newSession({
       cwd: this.cwd,
-      mcpServers: [],
+      mcpServers: mcpServers as any,
     });
 
     this.sessionId = sessionResult.sessionId;

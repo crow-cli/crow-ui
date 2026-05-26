@@ -320,15 +320,16 @@ impl WorktreeState {
                 }
                 FileEventKind::Deleted => {
                     let mut inner = inner.write();
-                    if let Some(old_content) = inner.content_cache.remove(&event.path) {
-                        let wt_event = WorktreeEvent::file_deleted(
-                            &event.path.to_string_lossy(),
-                            &old_content,
-                        );
-                        if let Ok(json) = serde_json::to_string(&wt_event) {
-                            log::debug!("[worktree] emitting worktree-file-deleted for {:?}", event.path);
-                            let _ = inner.event_tx.send(json);
-                        }
+                    let old_content = inner.content_cache.remove(&event.path);
+                    // Emit event even for directories (they're never in content_cache).
+                    // The explorer needs to know about dir deletions to refresh parents.
+                    let wt_event = WorktreeEvent::file_deleted(
+                        &event.path.to_string_lossy(),
+                        old_content.as_deref().unwrap_or(""),
+                    );
+                    if let Ok(json) = serde_json::to_string(&wt_event) {
+                        log::debug!("[worktree] emitting worktree-file-deleted for {:?}", event.path);
+                        let _ = inner.event_tx.send(json);
                     }
                 }
             }

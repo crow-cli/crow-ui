@@ -6,6 +6,7 @@ import { MarkdownCode } from "./MarkdownCode";
 import "katex/dist/katex.min.css";
 import { fsApi } from "../lib/rpc";
 import { ws } from "../lib/ws-client";
+import { useWorkbenchFontSize, useChatFontFamily } from "../lib/settings";
 
 interface MarkdownPreviewPaneProps {
   path: string;
@@ -14,6 +15,8 @@ interface MarkdownPreviewPaneProps {
 export default function MarkdownPreviewPane({ path }: MarkdownPreviewPaneProps) {
   const [content, setContent] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const chatFontSize = useWorkbenchFontSize("chat");
+  const chatFontFamily = useChatFontFamily();
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +56,16 @@ export default function MarkdownPreviewPane({ path }: MarkdownPreviewPaneProps) 
   }
 
   return (
-    <div className="h-full overflow-y-auto px-6 py-4 text-text-primary">
+    <div
+      className="h-full overflow-y-auto chat-messages"
+      style={{
+        fontSize: chatFontSize,
+        fontFamily: chatFontFamily,
+        backgroundColor: `color-mix(in srgb, var(--theme-chat-bg) calc(var(--theme-chat-bg-opacity) * 100%), transparent)`,
+        color: "var(--theme-text-primary)",
+        padding: "1rem 1.5rem",
+      }}
+    >
       <Streamdown
         plugins={{ mermaid, math }}
         isAnimating={false}

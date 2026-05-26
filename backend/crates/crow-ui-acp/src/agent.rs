@@ -75,6 +75,13 @@ impl AgentManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        // Inherit parent's environment (PATH, fnm, nvm, uv, etc.) by default.
+        // tokio::process::Command inherits the full parent env automatically,
+        // but we explicitly ensure PATH is preserved for Ubuntu 24.04 / Electron.
+        if let Ok(path) = std::env::var("PATH") {
+            info!("Agent {} PATH (inherited): {}", id, path);
+        }
+
         for env in &config.env {
             if let Some((k, v)) = env.split_once('=') {
                 cmd.env(k, v);

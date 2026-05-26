@@ -795,11 +795,39 @@ async fn create_session_handler(
         .unwrap_or_default();
     let cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
     let config_file = body.get("configFile").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let mcp_server_configs: Vec<crate::protocol::McpServerConfig> = body.get("mcpServers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    let mcp_servers: Vec<acp::McpServer> = mcp_server_configs.iter().map(|cfg| {
+        match &cfg.transport {
+            crate::protocol::McpTransport::Stdio { command, args, env } => {
+                acp::McpServer::Stdio(
+                    acp::McpServerStdio::new(&cfg.name, command)
+                        .args(args.clone())
+                        .env(env.iter().map(|e| acp::EnvVariable::new(&e.name, &e.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Http { url, headers } => {
+                acp::McpServer::Http(
+                    acp::McpServerHttp::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Sse { url, headers } => {
+                acp::McpServer::Sse(
+                    acp::McpServerSse::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+        }
+    }).collect();
 
     let state = app.lock().await;
     let forward_tx = state.acp_session_events_tx.clone();
 
-    match state.acp_sessions.create_session(name, command, args, env, cwd, config_file, forward_tx).await {
+    match state.acp_sessions.create_session(name, command, args, env, cwd, config_file, mcp_servers, forward_tx).await {
         Ok(session) => {
             (StatusCode::OK, Json(serde_json::json!({
                 "sessionId": session.session_id,

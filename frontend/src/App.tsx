@@ -44,6 +44,7 @@ import ChatPane from "./components/ChatPane";
 import RpcLogPanel from "./components/RpcLogPanel";
 import SettingsPane from "./components/SettingsPane";
 import AgentConfigPane from "./components/AgentConfigPane";
+import McpServerPane from "./components/McpServerPane";
 import LlmConfigPane from "./components/LlmConfigPane";
 import AgentProfilePane from "./components/AgentProfilePane";
 import SearchPane from "./components/SearchPane";
@@ -672,6 +673,11 @@ export default function App() {
   const saveFile = useCallback(
     async (path: string) => {
       if (savingRef.current) return;
+      // Cancel any pending dirty debounce so save doesn't race with keystroke timer
+      if (dirtyDebounceTimer.current) {
+        clearTimeout(dirtyDebounceTimer.current);
+        dirtyDebounceTimer.current = null;
+      }
       setSaving(true);
       try {
         const content = getModelContent(path) ?? "";
@@ -1145,6 +1151,30 @@ export default function App() {
           }
           break;
         }
+        case "mcp_servers": {
+          const model = layoutModelRef.current;
+          if (model) {
+            const node = model.getNodeById("mcp-servers-tab");
+            if (node) {
+              model.doAction(Actions.selectTab("mcp-servers-tab"));
+            } else {
+              model.doAction(
+                Actions.addTab(
+                  {
+                    type: "tab",
+                    id: "mcp-servers-tab",
+                    name: "MCP Servers",
+                    component: "mcp-server",
+                  },
+                  "editor-tabset",
+                  DockLocation.CENTER,
+                  -1,
+                ),
+              );
+            }
+          }
+          break;
+        }
       }
     },
     [saveFile, closeTab],
@@ -1182,6 +1212,7 @@ export default function App() {
       cmd("agent-config", "Agent Configuration", "ACP", "agent_config"),
       cmd("llm-config", "LLM Provider Configuration", "ACP", "llm_config"),
       cmd("agent-profile", "Agent Profile Editor", "ACP", "agent_profile"),
+      cmd("mcp-servers", "MCP Server Configuration", "ACP", "mcp_servers"),
       { id: "font-size-up", label: "Increase Font Size", category: "View", action: () => settings.bumpFontSizes(1) },
       { id: "font-size-down", label: "Decrease Font Size", category: "View", action: () => settings.bumpFontSizes(-1) },
     ];
@@ -1383,7 +1414,7 @@ export default function App() {
             </div>
           );
         }
-        return <ExplorerPane root={workspaceRoot} onFileClick={handleFileClick} dirtyFiles={dirtyFiles} />;
+        return <ExplorerPane root={workspaceRoot} onFileClick={handleFileClick} dirtyFiles={dirtyFiles} activeFile={activeFile} />;
       }
       case "welcome": {
         return (
@@ -1416,6 +1447,16 @@ export default function App() {
       case "agent-config":
         return (
           <AgentConfigPane
+            onClose={() => {
+              if (layoutModelRef.current) {
+                layoutModelRef.current.doAction(Actions.deleteTab(node.getId()));
+              }
+            }}
+          />
+        );
+      case "mcp-server":
+        return (
+          <McpServerPane
             onClose={() => {
               if (layoutModelRef.current) {
                 layoutModelRef.current.doAction(Actions.deleteTab(node.getId()));

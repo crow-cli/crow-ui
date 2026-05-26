@@ -3,20 +3,10 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Label } from "./ui/label";
-import { Switch } from "./ui/switch";
 import { Separator } from "./ui/separator";
-import { Badge } from "./ui/badge";
-import type { AgentConfig } from "../lib/acp-store";
+import type { AgentConfig, McpServerConfig } from "../lib/acp-client";
 import * as settings from "../lib/settings";
 import { cn } from "../lib/utils";
-
-interface McpServerConfig {
-  id: string;
-  name: string;
-  enabled: boolean;
-  command: string;
-  args: string[];
-}
 
 interface AgentConfigPaneProps {
   onClose: () => void;
@@ -76,9 +66,8 @@ export default function AgentConfigPane({ onClose }: AgentConfigPaneProps) {
 
   const save = useCallback(async () => {
     await settings.updateSetting("acp.agents", agents as any);
-    await settings.updateSetting("acp.mcpServers", mcpServers as any);
     setHasChanges(false);
-  }, [agents, mcpServers]);
+  }, [agents]);
 
   return (
     <div className="flex h-full min-w-0 text-text-primary text-[13px] font-sans">
@@ -237,27 +226,38 @@ export default function AgentConfigPane({ onClose }: AgentConfigPaneProps) {
               <CardContent>
                 {mcpServers.length === 0 ? (
                   <div className="text-[11px] text-text-secondary">
-                    No MCP servers configured. Add them in the MCP Servers section.
+                    No MCP servers configured. Open the MCP Servers pane to add them.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {mcpServers.map((mcp) => (
-                      <div key={mcp.id} className="flex items-center gap-3 py-1.5">
-                        <Switch
-                          checked={mcp.enabled}
-                          onCheckedChange={(checked: boolean) => {
-                            setMcpServers((prev) =>
-                              prev.map((m) => (m.id === mcp.id ? { ...m, enabled: checked } : m))
-                            );
-                            setHasChanges(true);
-                          }}
-                        />
-                        <span className="text-[12px] flex-1">{mcp.name}</span>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {mcp.command}
-                        </Badge>
-                      </div>
-                    ))}
+                    {mcpServers.map((mcp) => {
+                      const enabled = selectedAgent.mcpServerIds?.includes(mcp.name) ?? false;
+                      return (
+                        <div key={mcp.name} className="flex items-center gap-3 py-1.5">
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(e) => {
+                              const ids = new Set(selectedAgent.mcpServerIds || []);
+                              if (e.target.checked) {
+                                ids.add(mcp.name);
+                              } else {
+                                ids.delete(mcp.name);
+                              }
+                              updateAgent({
+                                ...selectedAgent,
+                                mcpServerIds: Array.from(ids),
+                              });
+                            }}
+                            className="w-4 h-4 accent-violet-500 cursor-pointer"
+                          />
+                          <span className="text-[12px] flex-1">{mcp.name}</span>
+                          <span className="text-[10px] text-text-secondary capitalize">
+                            {mcp.transport.type}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

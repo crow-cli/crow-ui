@@ -146,6 +146,7 @@ impl AcpSession {
         agent_manager: &AgentManager,
         config: AgentConfig,
         cwd: String,
+        mcp_servers: Vec<acp::McpServer>,
     ) -> Result<Arc<Self>> {
         let agent_id = agent_manager
             .spawn(&config, &cwd)
@@ -246,7 +247,7 @@ impl AcpSession {
             .context("initialize failed")?;
 
         // 2. New session
-        let new_session_req = acp::NewSessionRequest::new(&cwd);
+        let new_session_req = acp::NewSessionRequest::new(&cwd).mcp_servers(mcp_servers);
         let new_session_resp: acp::NewSessionResponse = session
             .request("session/new", new_session_req)
             .await
@@ -871,6 +872,7 @@ impl AcpSessionManager {
         env: Vec<String>,
         cwd: String,
         config_file: Option<String>,
+        mcp_servers: Vec<acp::McpServer>,
         forward_tx: broadcast::Sender<SessionEvent>,
     ) -> Result<Arc<AcpSession>> {
         let mut final_args = args;
@@ -891,7 +893,7 @@ impl AcpSessionManager {
             args: final_args,
             env,
         };
-        let session = AcpSession::create(&self.agent_manager, config, cwd).await?;
+        let session = AcpSession::create(&self.agent_manager, config, cwd, mcp_servers).await?;
 
         // Forward session events to the global channel
         let mut rx = session.subscribe();

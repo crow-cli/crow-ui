@@ -1,0 +1,21 @@
+{
+  "name": "crow-ui",
+  "short_name": "crow-ui",
+  "description": "AI-powered code editor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0c0c",
+  "theme_color": "#863bff",
+  "icons": [
+    {
+      "src": "/pwa-256x256.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=${productName}
-Exec=${execPath} %U
+Exec=${execPath} --no-sandbox %U
 Terminal=false
 Type=Application
 Icon=${icon}

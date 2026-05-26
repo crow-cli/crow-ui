@@ -59,7 +59,7 @@ export interface WorkbenchSettings {
   sideBar: { fontSize: number };
   panel: { fontSize: number };
   statusBar: { fontSize: number };
-  chat: { fontSize: number };
+  chat: { fontSize: number; fontFamily: string };
 }
 
 export interface LlmProvider {
@@ -140,7 +140,7 @@ const DEFAULT_SETTINGS: IdeSettings = {
     sideBar: { fontSize: 13 },
     panel: { fontSize: 13 },
     statusBar: { fontSize: 12 },
-    chat: { fontSize: 13 },
+    chat: { fontSize: 13, fontFamily: "'Quantico', monospace" },
   },
   llm: {
     defaultProvider: null,
@@ -199,9 +199,32 @@ function notify() {
   for (const fn of listeners) fn();
 }
 
+/** Inject chat font CSS custom property and dynamically load Google Font */
+export function injectChatFont(): void {
+  const family = getSettings().workbench.chat.fontFamily || "'Quantico', monospace";
+  document.documentElement.style.setProperty("--theme-chat-font", family);
+
+  // Extract primary font name for Google Fonts loading
+  const match = family.match(/['"]([^'"]+)['"]/);
+  const fontName = match ? match[1] : family.split(",")[0].trim();
+
+  // Skip system fonts (no spaces, no fancy names) and already-loaded fonts
+  if (!fontName || fontName.length < 2) return;
+
+  const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;
+  if (document.getElementById(linkId)) return;
+
+  const link = document.createElement("link");
+  link.id = linkId;
+  link.rel = "stylesheet";
+  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}&display=swap`;
+  document.head.appendChild(link);
+}
+
 /** Initialize settings system: load from backend + subscribe to changes */
 export async function initSettings(): Promise<void> {
   await loadSettings();
+  injectChatFont();
 
   if (unsubscribeWs) unsubscribeWs();
   unsubscribeWs = ws.onSettingsChange((key) => {
@@ -223,6 +246,7 @@ export async function loadSettings(): Promise<void> {
     console.warn("[settings] loadSettings failed, using defaults:", e);
     cache = structuredClone(DEFAULT_SETTINGS);
   }
+  injectChatFont();
   notify();
 }
 
@@ -336,6 +360,25 @@ export function useWorkbenchFontSize(key: keyof WorkbenchSettings): number {
   }, [key]);
 
   return size;
+}
+
+/**
+ * React hook that returns the live chat font family.
+ * Automatically re-renders when the setting changes.
+ */
+export function useChatFontFamily(): string {
+  const [family, setFamily] = useState(() =>
+    getSettings().workbench.chat.fontFamily || "'Quantico', monospace"
+  );
+
+  useEffect(() => {
+    const unsubscribe = subscribe(() => {
+      setFamily(getSettings().workbench.chat.fontFamily || "'Quantico', monospace");
+    });
+    return unsubscribe;
+  }, []);
+
+  return family;
 }
 
 function isIntellisenseDisabled(languageId: string): boolean {

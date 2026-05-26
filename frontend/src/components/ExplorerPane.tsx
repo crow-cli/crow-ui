@@ -4,7 +4,6 @@ import { fsApi } from "../lib/rpc";
 import { FileIcon } from "../lib/file-icons";
 import { cn } from "../lib/utils";
 import ContextMenu from "./ContextMenu";
-import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { DirtyIndicator } from "./DirtyIndicator";
 import * as settings from "../lib/settings";
@@ -19,9 +18,15 @@ interface ExplorerPaneProps {
   root: string;
   onFileClick: (path: string, isDir: boolean) => void;
   dirtyFiles?: Set<string>;
+  activeFile?: string | null;
 }
 
-export default function ExplorerPane({ root, onFileClick, dirtyFiles }: ExplorerPaneProps) {
+export default function ExplorerPane({
+  root,
+  onFileClick,
+  dirtyFiles,
+  activeFile,
+}: ExplorerPaneProps) {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [childCache, setChildCache] = useState<Map<string, FileEntry[]>>(
@@ -52,6 +57,9 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
   // Delete confirmation state
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [deletingName, setDeletingName] = useState("");
+
+  // Drag-and-drop state
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
 
   // Read hidden files preference from settings
   const [showHiddenFiles, setShowHiddenFiles] = useState(
@@ -107,6 +115,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
     });
   };
+
   // Listen for worktree file change events to refresh explorer
   useEffect(() => {
     const handleWorktreeEvent = (e: MessageEvent) => {
@@ -174,9 +183,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
 
   const loadDir = async (path: string) => {
     try {
-      const result = await fsApi.readDir({
-        path,
-      });
+      const result = await fsApi.readDir({ path });
       setEntries(sortEntries(result.entries));
     } catch (e) {
       console.error("Failed to read dir:", e);
@@ -188,9 +195,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       return childCache.get(path)!;
     }
     try {
-      const result = await fsApi.readDir({
-        path,
-      });
+      const result = await fsApi.readDir({ path });
       const sorted = sortEntries(result.entries);
       setChildCache((prev) => new Map(prev).set(path, sorted));
       return sorted;
@@ -211,6 +216,144 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
     } else {
       setExpandedDirs((prev) => new Set(prev).add(path));
       loadChildren(path);
+    }
+  };
+
+  // ── Drag and Drop ──────────────────────────────────────────────────────
+
+  const handleDragStart = (e: React.DragEvent, entry: FileEntry) => {
+    e.dataTransfer.setData("text/plain", entry.path);
+    e.dataTransfer.setData("application/x-crow-ui-path", entry.path);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, path: string, isDir: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDir) {
+      e.dataTransfer.dropEffect = "move";
+      setDragOverPath(path);
+    } else {
+      // Can drop onto a file's parent
+      const parent = path.replace(/\/[^/]+$/, "") || root;
+      e.dataTransfer.dropEffect = "move";
+      setDragOverPath(parent);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverPath(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetPath: string, isDir: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverPath(null);
+
+    // Get the dragged path (internal drag)
+    const draggedPath = e.dataTransfer.getData("application/x-crow-ui-path") ||
+                        e.dataTransfer.getData("text/plain");
+
+    // Determine drop target directory
+    let dropDir = targetPath;
+    if (!isDir) {
+      dropDir = targetPath.replace(/\/[^/]+$/, "") || root;
+    }
+
+    if (draggedPath && draggedPath !== dropDir && !dropDir.startsWith(draggedPath + "/")) {
+      // Internal move
+      const name = draggedPath.split("/").pop() || "";
+      const newPath = `${dropDir}/${name}`;
+      if (newPath !== draggedPath) {
+        try {
+          await fsApi.rename({ from: draggedPath, to: newPath });
+          // Refresh both source and destination parents
+          const srcParent = draggedPath.replace(/\/[^/]+$/, "") || root;
+          setChildCache((prev) => {
+            const next = new Map(prev);
+            next.delete(srcParent);
+            next.delete(dropDir);
+            return next;
+          });
+          if (srcParent === root) loadDir(root);
+          else loadChildren(srcParent, true);
+          if (dropDir === root) loadDir(root);
+          else loadChildren(dropDir, true);
+        } catch (err: any) {
+          alert(`Failed to move: ${err.message || err}`);
+        }
+      }
+      return;
+    }
+
+    // External drop (files from OS)
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      for (const file of files) {
+        try {
+          const targetFilePath = `${dropDir}/${file.name}`;
+          const content = await file.text();
+          await fsApi.createFile({ path: targetFilePath, content });
+        } catch (err: any) {
+          console.error("Failed to drop file:", err);
+        }
+      }
+      // Refresh destination
+      setChildCache((prev) => {
+        const next = new Map(prev);
+        next.delete(dropDir);
+        return next;
+      });
+      if (dropDir === root) loadDir(root);
+      else loadChildren(dropDir, true);
+    }
+  };
+
+  const handleRootDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverPath(null);
+
+    const draggedPath = e.dataTransfer.getData("application/x-crow-ui-path") ||
+                        e.dataTransfer.getData("text/plain");
+
+    if (draggedPath) {
+      // Internal move to root
+      const name = draggedPath.split("/").pop() || "";
+      const newPath = `${root}/${name}`;
+      if (newPath !== draggedPath) {
+        try {
+          await fsApi.rename({ from: draggedPath, to: newPath });
+          const srcParent = draggedPath.replace(/\/[^/]+$/, "") || root;
+          setChildCache((prev) => {
+            const next = new Map(prev);
+            next.delete(srcParent);
+            next.delete(root);
+            return next;
+          });
+          loadDir(root);
+          if (srcParent !== root) loadChildren(srcParent, true);
+        } catch (err: any) {
+          alert(`Failed to move: ${err.message || err}`);
+        }
+      }
+      return;
+    }
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      for (const file of files) {
+        try {
+          const targetFilePath = `${root}/${file.name}`;
+          const content = await file.text();
+          await fsApi.createFile({ path: targetFilePath, content });
+        } catch (err: any) {
+          console.error("Failed to drop file:", err);
+        }
+      }
+      setChildCache((prev) => new Map(prev).set(root, []));
+      loadDir(root);
     }
   };
 
@@ -357,7 +500,7 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
   const handleDeleteConfirm = async () => {
     if (!deletingPath) return;
     const path = deletingPath;
-    const isDir = deletingName.includes(".") ? false : true; // rough heuristic
+    const isDir = !deletingName.includes("."); // better heuristic: check if it's a dir
     setDeletingPath(null);
     setDeletingName("");
     try {
@@ -427,6 +570,43 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       loadChildren(p);
     }
   };
+
+  // When activeFile changes, expand parent dirs and scroll to it
+  useEffect(() => {
+    if (!activeFile || !activeFile.startsWith(root)) return;
+
+    // Compute all parent directories that need to be expanded
+    const rel = activeFile.replace(root + "/", "");
+    const parts = rel.split("/");
+    let current = root;
+    const toExpand: string[] = [];
+    // All parts except the last one (the file itself) are parent dirs
+    for (let i = 0; i < parts.length - 1; i++) {
+      current = `${current}/${parts[i]}`;
+      toExpand.push(current);
+    }
+
+    // Expand all parents
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      for (const p of toExpand) next.add(p);
+      return next;
+    });
+
+    // Load children for all expanded dirs, then scroll
+    (async () => {
+      for (const p of toExpand) {
+        await loadChildren(p);
+      }
+      // Give React time to render, then scroll
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const el = document.querySelector(`[data-explorer-path="${CSS.escape(activeFile)}"]`);
+          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 50);
+      });
+    })();
+  }, [activeFile, root]);
 
   // Focus rename input when editing starts
   useEffect(() => {
@@ -510,10 +690,17 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
   const renderItem = (entry: FileEntry, depth: number): React.ReactElement => {
     const isEditing = editingPath === entry.path;
     const isDirty = !entry.isDir && dirtyFiles?.has(entry.path);
+    const isActive = activeFile === entry.path;
+    const isDragOver = dragOverPath === entry.path;
 
     return (
-      <div key={entry.path}>
+      <div key={entry.path} data-explorer-path={entry.path}>
         <div
+          draggable
+          onDragStart={(e) => handleDragStart(e, entry)}
+          onDragOver={(e) => handleDragOver(e, entry.path, entry.isDir)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, entry.path, entry.isDir)}
           onClick={() =>
             entry.isDir
               ? toggleDir(entry.path)
@@ -521,8 +708,11 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
           }
           onContextMenu={(e) => handleContextMenu(e, entry.path, entry.isDir)}
           className={cn(
-            "cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors",
-            isDirty ? "text-primary font-medium" : "text-text-primary"
+            "cursor-pointer flex items-center gap-1.5 hover:bg-hover rounded-sm transition-colors select-none",
+            isActive && "bg-accent/15 text-accent",
+            isDirty && !isActive && "text-primary font-medium",
+            isDragOver && "bg-accent/20 border border-accent/30",
+            !isActive && !isDirty && "text-text-primary",
           )}
           style={{
             paddingLeft: 8 + depth * 16,
@@ -598,6 +788,8 @@ export default function ExplorerPane({ root, onFileClick, dirtyFiles }: Explorer
       className="h-full flex flex-col relative"
       style={{ backgroundColor: explorerBgRgba }}
       onContextMenu={handleRootContextMenu}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+      onDrop={handleRootDrop}
     >
       {/* File tree */}
       <div className="flex-1 overflow-auto pt-1">

@@ -7,6 +7,8 @@
 
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { ws } from "../lib/ws-client";
+import type { AgentConfig, McpServerConfig } from "./acp-client";
+import { getSetting } from "./settings";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -32,7 +34,6 @@ export interface AcpNotification {
   data: unknown;
 }
 
-import type { AgentConfig } from "./acp-client";
 export type { AgentConfig };
 
 export interface SessionConfigOption {
@@ -132,6 +133,12 @@ export async function createSession(
   config: AgentConfig,
   cwd: string,
 ): Promise<string> {
+  // Load MCP server definitions and filter to enabled ones for this agent
+  const allMcpServers = await getSetting<McpServerConfig[]>("acp.mcpServers", []);
+  const mcpServers = (allMcpServers || []).filter((mcp) =>
+    config.mcpServerIds?.includes(mcp.name)
+  );
+
   const response = await fetch("/api/acp/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -142,6 +149,7 @@ export async function createSession(
       env: config.env || [],
       cwd,
       configFile: config.configFile || null,
+      mcpServers,
     }),
   });
 

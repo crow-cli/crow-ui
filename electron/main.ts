@@ -1,37 +1,116 @@
-import { app, BrowserWindow, dialog, Menu } from "electron";
+import { app, BrowserWindow, dialog, Menu, crashReporter } from "electron";
 import { spawn, ChildProcess, execSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import * as net from "net";
+import * as os from "os";
+
+// ─── Logging ───────────────────────────────────────────────────────────────
+
+const LOG_DIR = path.join(os.homedir(), ".crow", "logs");
+const LOG_DATE = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+const LOG_PATH = path.join(LOG_DIR, `crow-ui-${LOG_DATE}.log`);
+
+let logStream: fs.WriteStream | null = null;
+
+try {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  logStream = fs.createWriteStream(LOG_PATH, { flags: "a" });
+} catch {
+  // If we can't create the log file, fall back to console-only
+}
+
+function log(level: "INFO" | "WARN" | "ERROR", ...args: unknown[]) {
+  const timestamp = new Date().toISOString();
+  const message = args
+    .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+    .join(" ");
+  const line = `[${timestamp}] [${level}] ${message}\n`;
+  // eslint-disable-next-line no-console
+  console.log(line.trimEnd());
+  if (logStream) {
+    logStream.write(line);
+  }
+}
+
+function logInfo(...args: unknown[]) { log("INFO", ...args); }
+function logWarn(...args: unknown[]) { log("WARN", ...args); }
+function logError(...args: unknown[]) { log("ERROR", ...args); }
+
+// ─── Crash Reporter ────────────────────────────────────────────────────────
+
+function initCrashReporter() {
+  const crashDir = path.join(LOG_DIR, "crashes");
+  fs.mkdirSync(crashDir, { recursive: true });
+
+  crashReporter.start({
+    submitURL: "", // No auto-submit; we just collect locally
+    uploadToServer: false,
+    ignoreSystemCrashHandler: true,
+    extra: {
+      appVersion: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      electronVersion: process.versions.electron,
+      chromeVersion: process.versions.chrome,
+    },
+  });
+
+  logInfo("Crash reporter started. Crashes will be dumped to:", crashDir);
+}
+
+// ─── Shell Environment ─────────────────────────────────────────────────────
 
 /** Capture the user's shell environment (fnm, nvm, uv, etc.) by spawning a login shell.
  *  Merges it into the current process.env so all child processes inherit it.
  */
 function loadShellEnv(): void {
   if (process.platform === "win32") return;
-  try {
-    const shell = process.env.SHELL || "/bin/bash";
-    // Use -i to make bash interactive (so it loads .bashrc) AND -l (login shell).
-    // The "no job control" / ioctl errors go to stderr — suppress them.
-    const envOutput = execSync(
-      `${shell} -i -l -c 'env -0' 2>/dev/null`,
-      { encoding: "utf-8", timeout: 5000 }
-    );
-    const vars = envOutput.split("\0");
-    for (const v of vars) {
-      const eq = v.indexOf("=");
-      if (eq > 0) {
-        const key = v.slice(0, eq);
-        const val = v.slice(eq + 1);
-        // Shell PATH always wins — it has fnm/nvm/uv entries
-        if (key === "PATH" || !process.env[key]) {
-          process.env[key] = val;
+
+  const shell = process.env.SHELL || "/bin/bash";
+
+  // Try multiple strategies — Ubuntu 24.04 chokes on interactive shells without a TTY
+  const strategies = [
+    // Strategy 1: login + interactive (works for most setups that source .bashrc in .bash_profile)
+    `${shell} -l -c 'env -0'`,
+    // Strategy 2: source .bashrc explicitly (for setups where .bashrc isn't sourced in login shells)
+    `${shell} -l -c 'source ~/.bashrc 2>/dev/null; env -0'`,
+    // Strategy 3: just source .bashrc directly
+    `${shell} -c 'source ~/.bashrc 2>/dev/null; env -0'`,
+    // Strategy 4: plain login shell without any extras
+    `${shell} -lc 'env -0'`,
+  ];
+
+  for (const cmd of strategies) {
+    try {
+      const envOutput = execSync(cmd, {
+        encoding: "utf-8",
+        timeout: 5000,
+        // Don't throw on non-zero exit — bash warnings about job control etc
+        // shouldn't kill the entire env capture
+      });
+      const vars = envOutput.split("\0");
+      let updated = 0;
+      for (const v of vars) {
+        const eq = v.indexOf("=");
+        if (eq > 0) {
+          const key = v.slice(0, eq);
+          const val = v.slice(eq + 1);
+          // Shell PATH always wins — it has fnm/nvm/uv entries
+          if (key === "PATH" || !process.env[key]) {
+            process.env[key] = val;
+            updated++;
+          }
         }
       }
+      logInfo("loadShellEnv: captured", updated, "vars via strategy:", cmd.slice(0, 60));
+      return; // Success — bail out
+    } catch (err) {
+      logWarn("loadShellEnv: strategy failed:", cmd.slice(0, 60), "—", String(err).slice(0, 120));
     }
-  } catch {
-    // Fallback: ignore errors, use existing env
   }
+
+  logWarn("loadShellEnv: all strategies failed, using existing env. PATH =", process.env.PATH?.slice(0, 200));
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -102,6 +181,36 @@ function createWindow() {
   const url = `http://127.0.0.1:${backendPort}`;
   mainWindow.loadURL(url);
 
+  // ─── Renderer crash handlers ────────────────────────────────────────────
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    logError(
+      "RENDERER PROCESS GONE:",
+      "reason =", details.reason,
+      "exitCode =", details.exitCode,
+      "webContents.id =", mainWindow?.webContents.id,
+    );
+    dialog.showErrorBox(
+      "Renderer Process Crashed",
+      `The webview process exited unexpectedly.\n\n` +
+        `Reason: ${details.reason}\n` +
+        `Exit code: ${details.exitCode}\n\n` +
+        `Logs written to: ${LOG_PATH}`,
+    );
+  });
+
+  mainWindow.webContents.on("plugin-crashed", (_event, name, version) => {
+    logError("PLUGIN CRASHED:", name, version);
+  });
+
+  mainWindow.webContents.on("unresponsive", () => {
+    logWarn("RENDERER UNRESPONSIVE — webContents.id =", mainWindow?.webContents.id);
+  });
+
+  mainWindow.webContents.on("responsive", () => {
+    logInfo("RENDERER RESPONSIVE — webContents.id =", mainWindow?.webContents.id);
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -119,11 +228,17 @@ async function startBackend() {
     return;
   }
 
+  logInfo("Starting backend:", binaryPath);
+
   return new Promise<void>((resolve, reject) => {
+    logInfo("startBackend: spawning with PATH =", process.env.PATH?.slice(0, 200));
+
     // Spawn on a random available port (port 0 lets OS pick)
+    // Explicitly pass env so the Rust backend gets our loaded shell environment
     backend = spawn(binaryPath, ["--port", "4723"], {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
+      env: process.env,
     });
 
     let resolved = false;
@@ -131,12 +246,14 @@ async function startBackend() {
     backend.stdout?.on("data", (data: Buffer) => {
       const line = data.toString();
       process.stdout.write(line); // forward to console for debugging
+      logInfo("[backend stdout]", line.trimEnd()); // also to log file
 
       if (!resolved) {
         const port = extractPort(line);
         if (port) {
           backendPort = port;
           resolved = true;
+          logInfo("Backend ready on port", port);
           resolve();
         }
       }
@@ -146,22 +263,26 @@ async function startBackend() {
     backend.stderr?.on("data", (data: Buffer) => {
       const line = data.toString();
       process.stderr.write(line); // forward to console
+      logInfo("[backend stderr]", line.trimEnd()); // also to log file (tracing is info-level)
 
       if (!resolved) {
         const port = extractPort(line);
         if (port) {
           backendPort = port;
           resolved = true;
+          logInfo("Backend ready on port (via stderr)", port);
           resolve();
         }
       }
     });
 
     backend.on("error", (err) => {
+      logError("Backend spawn error:", err);
       if (!resolved) reject(err);
     });
 
     backend.on("exit", (code, signal) => {
+      logError("Backend exited:", "code =", code, "signal =", signal);
       if (!resolved) {
         reject(new Error(`Backend exited with code ${code}, signal ${signal}`));
       }
@@ -170,25 +291,57 @@ async function startBackend() {
     // Timeout fallback
     setTimeout(() => {
       if (!resolved) {
+        logError("Backend did not start within 30 seconds");
         reject(new Error("Backend did not start within 30 seconds"));
       }
     }, 30000);
   });
 }
 
+// ─── App-level crash handlers ──────────────────────────────────────────────
+
+app.on("child-process-gone", (_event, details) => {
+  logError(
+    "CHILD PROCESS GONE:",
+    "type =", details.type,
+    "reason =", details.reason,
+    "exitCode =", details.exitCode,
+    "serviceName =", details.serviceName,
+  );
+});
+
+app.on("certificate-error", (_event, _webContents, url, error, _certificate, callback) => {
+  logWarn("CERTIFICATE ERROR:", url, error);
+  callback(false);
+});
+
+app.on("render-process-gone", (_event, _webContents, details) => {
+  logError(
+    "APP-LEVEL RENDERER GONE:",
+    "reason =", details.reason,
+    "exitCode =", details.exitCode,
+  );
+});
+
 app.whenReady().then(async () => {
+  initCrashReporter();
+  logInfo("Electron starting. Version:", process.versions.electron);
+  logInfo("Log file:", LOG_PATH);
+
   Menu.setApplicationMenu(null); // Hide default menu bar
   loadShellEnv(); // Capture fnm/nvm/uv etc. before spawning backend
   try {
     await startBackend();
     createWindow();
   } catch (err) {
+    logError("Startup failed:", err);
     dialog.showErrorBox("Startup Error", `Failed to start backend:\n${err}`);
     app.quit();
   }
 });
 
 app.on("window-all-closed", () => {
+  logInfo("All windows closed");
   // On macOS, keep app alive unless explicitly quit
   if (process.platform !== "darwin") {
     app.quit();
@@ -196,14 +349,20 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  logInfo("App quitting...");
   // Kill backend process on exit
   if (backend) {
     backend.kill("SIGTERM");
     backend = null;
   }
+  if (logStream) {
+    logStream.end();
+    logStream = null;
+  }
 });
 
 app.on("activate", () => {
+  logInfo("App activated");
   if (mainWindow === null) {
     createWindow();
   }
