@@ -43,6 +43,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
+base64 = "0.22"
 
 [[bin]]
 name = "crow-ui-server"

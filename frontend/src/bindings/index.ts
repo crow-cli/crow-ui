@@ -38,6 +38,8 @@ export type { McpServerConfig } from "./McpServerConfig";
 export type { McpTransport } from "./McpTransport";
 export type { ReadDirRequest } from "./ReadDirRequest";
 export type { ReadDirResponse } from "./ReadDirResponse";
+export type { ReadFileBinaryRequest } from "./ReadFileBinaryRequest";
+export type { ReadFileBinaryResponse } from "./ReadFileBinaryResponse";
 export type { ReadFileRequest } from "./ReadFileRequest";
 export type { RemoveRequest } from "./RemoveRequest";
 export type { RemoveResponse } from "./RemoveResponse";

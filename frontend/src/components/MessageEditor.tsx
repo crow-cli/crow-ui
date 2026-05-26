@@ -23,6 +23,8 @@ import { useWorkbenchFontSize } from "../lib/settings";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import { marked } from "marked";
+import { DOMParser as ProseMirrorDOMParser } from "prosemirror-model";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -174,12 +176,12 @@ function makeSuggestionConfig(
     items: ({ query }: { query: string }) => {
       const allItems = getItems();
       const q = query.toLowerCase().trim();
-      if (!q) return allItems.slice(0, 12);
+      if (!q) return allItems;
       return allItems.filter(
         (item) =>
           item.label.toLowerCase().includes(q) ||
           item.id.toLowerCase().includes(q),
-      ).slice(0, 12);
+      );
     },
     render: () => {
       let component: ReactRenderer<SuggestionPopupRef>;
@@ -231,92 +233,289 @@ function makeSuggestionConfig(
 
 // ─── ContentBlock Extraction ───────────────────────────────────────────────
 
-function extractContentBlocks(doc: unknown): ContentBlock[] {
-  type JSONNode = {
-    type?: string;
-    attrs?: Record<string, unknown>;
-    text?: string;
-    content?: JSONNode[];
-  };
+interface JSONNode {
+  type?: string;
+  attrs?: Record<string, unknown>;
+  text?: string;
+  content?: JSONNode[];
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+}
 
-  const root = doc as JSONNode;
+/** Convert inline marks to markdown syntax */
+function applyMarks(text: string, marks?: JSONNode["marks"]): string {
+  if (!marks || marks.length === 0) return text;
+  // Apply marks in reverse order so nested marks work correctly
+  for (const mark of [...marks].reverse()) {
+    switch (mark.type) {
+      case "bold":
+        text = `**${text}**`;
+        break;
+      case "italic":
+        text = `*${text}*`;
+        break;
+      case "code":
+        text = `\`${text}\``;
+        break;
+      case "link": {
+        const href = String(mark.attrs?.href ?? "");
+        text = `[${text}](${href})`;
+        break;
+      }
+      case "strike":
+        text = `~~${text}~~`;
+        break;
+    }
+  }
+  return text;
+}
+
+/** Walk a TipTap JSON doc and produce ACP ContentBlocks.
+ *  Preserves markdown formatting for all block-level nodes (lists, headings,
+ *  blockquotes, code blocks) so the LLM sees structured text.
+ */
+function extractContentBlocks(doc: unknown): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   let currentText = "";
 
   const flushText = () => {
     if (currentText) {
-      blocks.push({ type: "text", text: currentText });
+      const trimmed = currentText.trimEnd();
+      if (trimmed) {
+        blocks.push({ type: "text", text: trimmed });
+      }
       currentText = "";
     }
   };
 
-  const processNode = (node: JSONNode) => {
-    if (node.type === "text") {
-      currentText += node.text ?? "";
-    } else if (node.type === "hardBreak") {
-      currentText += "\n";
-    } else if (node.type === "mention") {
-      flushText();
-      const id = String(node.attrs?.id ?? "");
-      const label = String(node.attrs?.label ?? id);
-      // For now, file mentions become ResourceLink
-      // In a fuller implementation, we'd read the file content and embed it
-      blocks.push({
-        type: "resource_link",
-        uri: `file:///${id}`,
-        name: label,
-      });
-    } else if (node.type === "image") {
-      flushText();
-      const src = String(node.attrs?.src ?? "");
-      if (src.startsWith("data:")) {
-        const match = src.match(/^data:([^;]+);base64,(.+)$/);
-        if (match) {
-          blocks.push({
-            type: "image",
-            mimeType: match[1],
-            data: match[2],
-          });
+  const appendText = (s: string) => {
+    currentText += s;
+  };
+
+  /** Process inline nodes (text, hardBreak, mention, image) */
+  const processInline = (nodes: JSONNode[] | undefined) => {
+    for (const node of nodes ?? []) {
+      switch (node.type) {
+        case "text": {
+          const text = applyMarks(node.text ?? "", node.marks);
+          appendText(text);
+          break;
         }
-      } else {
-        blocks.push({ type: "resource_link", uri: src, name: "Image" });
+        case "hardBreak":
+          appendText("\n");
+          break;
+        case "mention": {
+          flushText();
+          const id = String(node.attrs?.id ?? "");
+          const label = String(node.attrs?.label ?? id);
+          blocks.push({
+            type: "resource_link",
+            uri: `file://${id}`,
+            name: label,
+          });
+          break;
+        }
+        case "image": {
+          flushText();
+          const src = String(node.attrs?.src ?? "");
+          if (src.startsWith("data:")) {
+            const match = src.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              blocks.push({
+                type: "image",
+                mimeType: match[1],
+                data: match[2],
+              });
+            }
+          } else {
+            blocks.push({ type: "resource_link", uri: src, name: "Image" });
+          }
+          break;
+        }
       }
     }
   };
 
-  const topLevel = (root.content as JSONNode[] | undefined) ?? [];
-  for (let i = 0; i < topLevel.length; i++) {
-    const node = topLevel[i];
-    if (node.type === "paragraph") {
-      for (const inline of (node.content as JSONNode[] | undefined) ?? []) {
-        processNode(inline);
+  /** Process block-level nodes recursively */
+  const processBlock = (node: JSONNode) => {
+    switch (node.type) {
+      case "paragraph": {
+        processInline(node.content);
+        appendText("\n\n");
+        break;
       }
-      // Add paragraph break between paragraphs (but not after last)
-      if (i < topLevel.length - 1) {
-        currentText += "\n\n";
+      case "heading": {
+        const level = Math.min(Math.max((node.attrs?.level as number) ?? 1, 1), 6);
+        appendText("#".repeat(level) + " ");
+        processInline(node.content);
+        appendText("\n\n");
+        break;
       }
-    } else {
-      processNode(node);
+      case "bulletList": {
+        for (const item of node.content ?? []) {
+          if (item.type === "listItem") {
+            appendText("- ");
+            for (const child of item.content ?? []) {
+              processBlock(child);
+            }
+            // Remove trailing \n\n from paragraph inside listItem,
+            // replace with single \n
+            currentText = currentText.trimEnd() + "\n";
+          }
+        }
+        appendText("\n");
+        break;
+      }
+      case "orderedList": {
+        let num = (node.attrs?.start as number) ?? 1;
+        for (const item of node.content ?? []) {
+          if (item.type === "listItem") {
+            appendText(`${num}. `);
+            for (const child of item.content ?? []) {
+              processBlock(child);
+            }
+            currentText = currentText.trimEnd() + "\n";
+            num++;
+          }
+        }
+        appendText("\n");
+        break;
+      }
+      case "blockquote": {
+        for (const child of node.content ?? []) {
+          // Save state, process child, then prefix each line
+          const saved = currentText;
+          currentText = "";
+          processBlock(child);
+          const inner = currentText.trimEnd();
+          currentText = saved;
+          for (const line of inner.split("\n")) {
+            if (line.trim()) {
+              appendText("> " + line + "\n");
+            }
+          }
+        }
+        appendText("\n");
+        break;
+      }
+      case "codeBlock": {
+        const lang = String(node.attrs?.language ?? "");
+        appendText("```" + lang + "\n");
+        processInline(node.content);
+        appendText("\n```\n\n");
+        break;
+      }
+      case "horizontalRule": {
+        appendText("---\n\n");
+        break;
+      }
+      default: {
+        // Unknown node — recurse into children
+        for (const child of node.content ?? []) {
+          processBlock(child);
+        }
+      }
     }
+  };
+
+  const root = doc as JSONNode;
+  for (const node of root.content ?? []) {
+    processBlock(node);
   }
 
   flushText();
+  return blocks;
+}
 
-  // Merge adjacent text blocks
-  const merged: ContentBlock[] = [];
+/** Read file contents for @-mentions and embed them as `resource` or `image` blocks.
+ *  Falls back to `resource_link` if reading fails.
+ *  Image files are read via the binary endpoint and sent as `image` blocks.
+ */
+async function embedMentionContent(
+  blocks: ContentBlock[],
+  _workspaceRoot: string | null,
+): Promise<ContentBlock[]> {
+  const result: ContentBlock[] = [];
   for (const block of blocks) {
-    if (block.type === "text") {
-      const last = merged[merged.length - 1];
-      if (last && last.type === "text") {
-        (last as Extract<ContentBlock, { type: "text" }>).text += block.text;
+    if (block.type === "resource_link" && block.uri?.startsWith("file://")) {
+      const path = block.uri.slice("file://".length);
+      const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(path);
+
+      if (isImage) {
+        // Read image as base64 via binary endpoint and send as image block
+        try {
+          const { fsApi } = await import("../lib/rpc");
+          const resp = await fsApi.readFileBinary({ path });
+          if (resp.data) {
+            result.push({
+              type: "image",
+              mimeType: resp.mimeType,
+              data: resp.data,
+              uri: block.uri,
+            });
+            continue;
+          }
+        } catch {
+          // Fall through to resource_link
+        }
       } else {
-        merged.push(block);
+        // Text file: embed as resource
+        try {
+          const content = await readFileContent(path);
+          if (content != null) {
+            result.push({
+              type: "resource",
+              resource: {
+                uri: block.uri,
+                text: content,
+                mimeType: "text/plain",
+              },
+            });
+            continue;
+          }
+        } catch {
+          // Fall through to resource_link
+        }
       }
-    } else {
-      merged.push(block);
     }
+    result.push(block);
   }
-  return merged;
+  return result;
+}
+
+/** Heuristic: does this plain text look like markdown? */
+function looksLikeMarkdown(text: string): boolean {
+  // Check for block-level markdown patterns
+  const patterns = [
+    /^#{1,6}\s/m, // headings
+    /^[-*+]\s/m, // bullet lists
+    /^\d+\.\s/m, // ordered lists
+    /^>\s/m, // blockquotes
+    /^```/m, // code fences
+    /\*\*[^*]+\*\*/, // bold
+    /`[^`]+`/, // inline code
+    /\[([^\]]+)\]\(([^)]+)\)/, // links
+  ];
+  return patterns.some((p) => p.test(text));
+}
+
+/** Convert markdown text to TipTap JSON using marked + ProseMirror DOMParser */
+function markdownToTiptapJson(
+  markdown: string,
+  schema: import("prosemirror-model").Schema,
+): object | null {
+  try {
+    const html = marked.parse(markdown, { async: false }) as string;
+    const domParser = new globalThis.DOMParser();
+    const dom = domParser.parseFromString(
+      `<div>${html}</div>`,
+      "text/html",
+    );
+    const doc = ProseMirrorDOMParser.fromSchema(schema).parse(dom.body.firstChild!);
+    return doc.toJSON();
+  } catch (e) {
+    console.warn("[MessageEditor] markdown parse failed:", e);
+    return null;
+  }
 }
 
 // ─── MessageEditor Component ───────────────────────────────────────────────
@@ -353,7 +552,7 @@ export default function MessageEditor({
     }
   }, [modelConfig?.currentValue]);
 
-  // Build mention items from workspace files
+  // Build mention items from workspace files (recursive scan)
   useEffect(() => {
     if (!workspaceRoot) {
       setMentionItems([]);
@@ -375,50 +574,78 @@ export default function MessageEditor({
       },
     ];
 
-    // Fetch workspace files for @-mentions
-    const root = workspaceRoot; // narrowed by guard above
+    const root = workspaceRoot;
+    const SKIP_DIRS = new Set([
+      "node_modules",
+      "target",
+      "dist",
+      "build",
+      ".git",
+      "__pycache__",
+      ".venv",
+      "venv",
+      ".next",
+      ".turbo",
+      "out",
+      "coverage",
+      ".cache",
+    ]);
+    const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]);
+
+    let cancelled = false;
+    let unsubWorktree: (() => void) | undefined;
+
     async function loadFiles() {
       try {
         const { fsApi } = await import("../lib/rpc");
-        const resp = await fsApi.readDir({ path: root });
         const fileItems: MentionItem[] = [];
-        for (const entry of resp.entries) {
-          if (entry.isFile) {
-            fileItems.push({
-              id: entry.path,
-              label: entry.name,
-              icon: "📄",
-              category: "Files",
-              resolve: () => ({
-                type: "resource_link",
-                uri: `file://${entry.path}`,
-                name: entry.name,
-              }),
-            });
-          } else if (entry.isDir && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "target") {
-            // One-level deep scan for directories
-            try {
-              const subResp = await fsApi.readDir({ path: entry.path });
-              for (const sub of subResp.entries) {
-                if (sub.isFile) {
-                  fileItems.push({
-                    id: sub.path,
-                    label: `${entry.name}/${sub.name}`,
-                    icon: "📄",
-                    category: entry.name,
-                    resolve: () => ({
-                      type: "resource_link",
-                      uri: `file://${sub.path}`,
-                      name: sub.name,
-                    }),
-                  });
-                }
-              }
-            } catch {
-              // ignore subdir read errors
+        const queue: { path: string; depth: number }[] = [{ path: root, depth: 0 }];
+        const visited = new Set<string>();
+
+        while (queue.length > 0 && fileItems.length < 300) {
+          const { path: dirPath, depth } = queue.shift()!;
+          if (visited.has(dirPath)) continue;
+          visited.add(dirPath);
+
+          let entries;
+          try {
+            const resp = await fsApi.readDir({ path: dirPath });
+            entries = resp.entries;
+          } catch {
+            continue;
+          }
+
+          for (const entry of entries) {
+            if (entry.isFile) {
+              const ext = entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase();
+              const isImage = IMAGE_EXTS.has(ext);
+              const relPath = entry.path.slice(root.length + 1); // relative to workspace root
+              const displayPath = depth === 0 ? entry.name : relPath;
+
+              fileItems.push({
+                id: entry.path,
+                label: displayPath,
+                icon: isImage ? "🖼️" : "📄",
+                category: isImage ? "Images" : depth === 0 ? "Files" : entry.path.slice(0, entry.path.lastIndexOf("/")).slice(root.length + 1) || "Files",
+                resolve: () => ({
+                  type: "resource_link",
+                  uri: `file://${entry.path}`,
+                  name: entry.name,
+                }),
+              });
+            } else if (
+              entry.isDir &&
+              !entry.name.startsWith(".") &&
+              !SKIP_DIRS.has(entry.name) &&
+              depth < 4
+            ) {
+              queue.push({ path: entry.path, depth: depth + 1 });
             }
           }
         }
+
+        if (cancelled) return;
+
         const all = [...items, ...fileItems];
         setMentionItems(all);
         mentionItemsRef.current = all.map((m) => ({
@@ -428,7 +655,7 @@ export default function MessageEditor({
           category: m.category,
         }));
       } catch {
-        // Fallback to default items on error
+        if (cancelled) return;
         setMentionItems(items);
         mentionItemsRef.current = items.map((m) => ({
           id: m.id,
@@ -439,7 +666,24 @@ export default function MessageEditor({
       }
     }
 
-    loadFiles();
+    async function setup() {
+      await loadFiles();
+
+      // Refresh file list when worktree changes (files created/deleted)
+      const { ws } = await import("../lib/ws-client");
+      unsubWorktree = ws.onWorktreeEvent((method) => {
+        if (method === "worktree-file-created" || method === "worktree-file-deleted" || method === "worktree-file-changed") {
+          loadFiles();
+        }
+      });
+    }
+
+    setup();
+
+    return () => {
+      cancelled = true;
+      unsubWorktree?.();
+    };
   }, [workspaceRoot]);
 
   // Stable extension that reads items from ref (not captured at creation time)
@@ -477,6 +721,18 @@ export default function MessageEditor({
         return {
           Enter: () => {
             if (suggestionOpenRef.current) return false;
+            const editor = this.editor;
+            if (!editor) return false;
+            // Don't send if cursor is in a list, blockquote, or code block
+            // — let StarterKit handle list continuation, code block exit, etc.
+            if (
+              editor.isActive("bulletList") ||
+              editor.isActive("orderedList") ||
+              editor.isActive("blockquote") ||
+              editor.isActive("codeBlock")
+            ) {
+              return false;
+            }
             handleSendRef.current();
             return true;
           },
@@ -485,6 +741,8 @@ export default function MessageEditor({
             handleSendRef.current();
             return true;
           },
+          // Shift+Enter is intentionally NOT captured — let StarterKit's HardBreak
+          // extension handle it (inserts <br> in lists, paragraphs, etc.)
         };
       },
     });
@@ -504,18 +762,20 @@ export default function MessageEditor({
     editable: !disabled,
     editorProps: {
       handlePaste: (_view, event) => {
-        const items = event.clipboardData?.items;
-        if (!items) return false;
-        for (const item of items) {
-          if (item.type.startsWith("image/")) {
-            const file = item.getAsFile();
-            if (file) {
+        const data = event.clipboardData;
+        if (!data) return false;
+
+        // 1. Images — highest priority
+        // Try clipboardData.files first (works in most modern browsers + Electron)
+        if (data.files && data.files.length > 0) {
+          for (const file of data.files) {
+            if (file.type.startsWith("image/")) {
               event.preventDefault();
               const reader = new FileReader();
               reader.onload = (e) => {
                 const dataUrl = e.target?.result as string;
-                if (dataUrl) {
-                  editor?.chain().focus().setImage({ src: dataUrl }).run();
+                if (dataUrl && editor) {
+                  editor.chain().focus().setImage({ src: dataUrl }).run();
                 }
               };
               reader.readAsDataURL(file);
@@ -523,22 +783,124 @@ export default function MessageEditor({
             }
           }
         }
+
+        // Try clipboardData.items (standard API, sometimes has files when .files doesn't)
+        const items = data.items;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              event.preventDefault();
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                const dataUrl = e.target?.result as string;
+                if (dataUrl && editor) {
+                  editor.chain().focus().setImage({ src: dataUrl }).run();
+                }
+              };
+              reader.readAsDataURL(file);
+              return true;
+            }
+          }
+        }
+
+        // 2. HTML paste with images — let ProseMirror handle it
+        const htmlText = data.getData("text/html");
+        if (htmlText) {
+          // Check if HTML contains images
+          const hasImages = /<img\s/i.test(htmlText);
+          if (hasImages) {
+            // Let ProseMirror handle it — TipTap Image extension will pick up <img> tags
+            return false;
+          }
+        }
+
+        // 3. Markdown text paste — convert to rich text
+        const plainText = data.getData("text/plain");
+        if (plainText && !htmlText && looksLikeMarkdown(plainText)) {
+          event.preventDefault();
+          const json = markdownToTiptapJson(plainText, editor?.view.state.schema);
+          if (json) {
+            editor?.chain().focus().insertContent(json).run();
+          } else {
+            editor?.chain().focus().insertContent(plainText).run();
+          }
+          return true;
+        }
+
+        // 4. HTML paste — let ProseMirror handle it natively
+        if (htmlText) {
+          return false;
+        }
+
+        // 5. Plain text paste — let default handler deal with it
         return false;
       },
       handleDrop: (_view, event) => {
-        const files = event.dataTransfer?.files;
-        if (!files || files.length === 0) return false;
-        event.preventDefault();
-        for (const file of files) {
-          if (file.type.startsWith("image/")) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const dataUrl = e.target?.result as string;
-              if (dataUrl) {
-                editor?.chain().focus().setImage({ src: dataUrl }).run();
-              }
-            };
-            reader.readAsDataURL(file);
+        const dt = event.dataTransfer;
+        if (!dt) return false;
+
+        // 1. OS file drop (images from file manager)
+        const files = dt.files;
+        if (files && files.length > 0) {
+          event.preventDefault();
+          for (const file of files) {
+            if (file.type.startsWith("image/")) {
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                const dataUrl = e.target?.result as string;
+                if (dataUrl && editor) {
+                  editor.chain().focus().setImage({ src: dataUrl }).run();
+                }
+              };
+              reader.readAsDataURL(file);
+            } else {
+              // Insert a file mention
+              editor
+                ?.chain()
+                .focus()
+                .insertContent({
+                  type: "mention",
+                  attrs: {
+                    id: file.name,
+                    label: file.name,
+                    mentionSuggestionChar: "@",
+                  },
+                })
+                .run();
+            }
+          }
+          return true;
+        }
+
+        // 2. In-app drop from explorer (dataTransfer has text/plain path)
+        const textPath = dt.getData("text/plain");
+        if (textPath && textPath.startsWith(workspaceRoot || "")) {
+          event.preventDefault();
+          const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(textPath);
+          if (isImage && editor) {
+            // Use binary endpoint to read image and embed as base64
+            import("../lib/rpc").then(({ fsApi }) => {
+              fsApi.readFileBinary({ path: textPath })
+                .then((resp) => {
+                  if (resp.data) {
+                    const dataUrl = `data:${resp.mimeType};base64,${resp.data}`;
+                    editor.chain().focus().setImage({ src: dataUrl }).run();
+                  }
+                })
+                .catch(() => {
+                  // Fallback: mention the image file
+                  editor.chain().focus().insertContent({
+                    type: "mention",
+                    attrs: {
+                      id: textPath,
+                      label: textPath.split("/").pop() || textPath,
+                      mentionSuggestionChar: "@",
+                    },
+                  }).run();
+                });
+            });
           } else {
             // Insert a file mention
             editor
@@ -547,15 +909,17 @@ export default function MessageEditor({
               .insertContent({
                 type: "mention",
                 attrs: {
-                  id: file.name,
-                  label: file.name,
+                  id: textPath,
+                  label: textPath.split("/").pop() || textPath,
                   mentionSuggestionChar: "@",
                 },
               })
               .run();
           }
+          return true;
         }
-        return true;
+
+        return false;
       },
       handleKeyDown: (view, event) => {
         // Wrap selected text with paired characters
@@ -650,21 +1014,39 @@ export default function MessageEditor({
     };
   }, [editor]);
 
-  const handleSendClick = useCallback(() => {
+  const handleSendClick = useCallback(async () => {
     if (!editor || disabled) return;
     const json = editor.getJSON();
     const blocks = extractContentBlocks(json);
+
+    // Embed file content for @-mentions (fire-and-forget — editor clears immediately)
+    const blocksWithContent = await embedMentionContent(blocks, workspaceRoot);
+
     // Defensive: check if we actually have content (not just empty paragraphs)
-    const hasContent = blocks.some((b) => {
+    const hasContent = blocksWithContent.some((b) => {
       if (b.type === "text") return (b.text || "").trim().length > 0;
-      return true; // images, mentions always count
+      return true; // images, mentions, resources always count
     });
     if (!hasContent) return;
+
     // Extract plain text for editing queued messages later
-    const text = blocks.map((b) => (b.type === "text" ? b.text : b.type === "image" ? "[Image]" : b.type === "resource_link" ? `@[${b.name}](${b.uri})` : "")).join("");
-    onSend(blocks, text);
+    const text = blocksWithContent
+      .map((b) =>
+        b.type === "text"
+          ? b.text
+          : b.type === "image"
+            ? "[Image]"
+            : b.type === "resource"
+              ? `[@${b.resource?.uri?.split("/").pop() ?? "file"}](embedded)`
+              : b.type === "resource_link"
+                ? `[@${b.name}](${b.uri})`
+                : "",
+      )
+      .join("");
+
+    onSend(blocksWithContent, text);
     editor.commands.clearContent();
-  }, [editor, disabled, onSend]);
+  }, [editor, disabled, onSend, workspaceRoot]);
 
   const handleCancelClick = useCallback(() => {
     onCancel?.();
@@ -709,6 +1091,10 @@ export default function MessageEditor({
           <div
             ref={editorRef}
             className="flex-1 overflow-y-auto px-2.5 py-1.5"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+            }}
           >
             <EditorContent editor={editor} />
           </div>

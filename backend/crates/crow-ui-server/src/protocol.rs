@@ -621,6 +621,21 @@ pub struct ReadFileResponse {
 #[derive(Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
+pub struct ReadFileBinaryRequest {
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReadFileBinaryResponse {
+    pub data: String, // base64-encoded
+    pub mime_type: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct WriteFileRequest {
     pub path: String,
     pub content: String,

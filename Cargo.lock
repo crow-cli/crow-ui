@@ -413,6 +413,7 @@ dependencies = [
  "agent-client-protocol-schema",
  "anyhow",
  "axum",
+ "base64",
  "crossbeam",
  "crow-ui-acp",
  "crow-ui-db",

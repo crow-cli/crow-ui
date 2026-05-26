@@ -51,6 +51,8 @@ import type {
   ReadDirResponse,
   ReadFileRequest,
   ReadFileResponse,
+  ReadFileBinaryRequest,
+  ReadFileBinaryResponse,
   WriteFileRequest,
   ExistsRequest,
   ExistsResponse,
@@ -212,6 +214,9 @@ export const fsApi = {
 
   readFile: (req: ReadFileRequest): Promise<ReadFileResponse> =>
     invoke("read_file", req),
+
+  readFileBinary: (req: ReadFileBinaryRequest): Promise<ReadFileBinaryResponse> =>
+    invoke("read_file_binary", req),
 
   writeFile: (req: WriteFileRequest): Promise<void> =>
     invoke("write_file", req),

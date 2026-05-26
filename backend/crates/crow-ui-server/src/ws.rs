@@ -533,6 +533,10 @@ async fn handle_message(text: &str, app: &App) -> Value {
             Ok(req) => handlers::handle_read_file(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
             Err(e) => Err(e.to_string()),
         },
+        "read_file_binary" => match serde_json::from_value::<crate::protocol::ReadFileBinaryRequest>(request.params) {
+            Ok(req) => handlers::handle_read_file_binary(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
         "write_file" => match serde_json::from_value::<crate::protocol::WriteFileRequest>(request.params) {
             Ok(req) => handlers::handle_write_file(&state, req).await,
             Err(e) => Err(e.to_string()),

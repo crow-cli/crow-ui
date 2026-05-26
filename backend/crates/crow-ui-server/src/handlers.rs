@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::protocol::*;
@@ -206,6 +207,32 @@ pub async fn handle_read_file(state: &AppState, req: ReadFileRequest) -> Result<
     };
 
     Ok(ReadFileResponse { content })
+}
+
+pub async fn handle_read_file_binary(_state: &AppState, req: ReadFileBinaryRequest) -> Result<ReadFileBinaryResponse, String> {
+    let bytes = tokio::fs::read(&req.path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mime_type = mime_type_from_path(&req.path);
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+    Ok(ReadFileBinaryResponse { data, mime_type })
+}
+
+fn mime_type_from_path(path: &str) -> String {
+    let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    }.to_string()
 }
 
 pub async fn handle_write_file(state: &AppState, req: WriteFileRequest) -> Result<Value, String> {
