@@ -53,7 +53,10 @@ export default function SearchPane({ workspaceRoot }: SearchPaneProps) {
   };
 
   return (
-    <div className="flex flex-col h-full text-[13px] text-text-primary overflow-hidden">
+    <div
+      className="flex flex-col h-full text-[13px] text-text-primary overflow-hidden"
+      style={{ backgroundColor: "var(--theme-background)" }}
+    >
       {/* Header */}
       <div className="px-3 py-2 border-b shrink-0" style={{ borderColor: "var(--theme-border)" }}>
         <div className="flex items-center gap-1.5 mb-2">
@@ -64,7 +67,7 @@ export default function SearchPane({ workspaceRoot }: SearchPaneProps) {
         {/* Search input */}
         <div
           className="flex items-center gap-1.5 px-2 py-1 rounded-md"
-          style={{ backgroundColor: "var(--theme-surface-30)", border: "1px solid var(--theme-border)" }}
+          style={{ backgroundColor: "var(--theme-surface)", border: "1px solid var(--theme-border)" }}
         >
           <Search className="w-3.5 h-3.5 text-text-secondary shrink-0" />
           <input
@@ -90,7 +93,7 @@ export default function SearchPane({ workspaceRoot }: SearchPaneProps) {
         {showReplace && (
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-md mt-1.5"
-            style={{ backgroundColor: "var(--theme-surface-30)", border: "1px solid var(--theme-border)" }}
+            style={{ backgroundColor: "var(--theme-surface)", border: "1px solid var(--theme-border)" }}
           >
             <Replace className="w-3.5 h-3.5 text-text-secondary shrink-0" />
             <input
@@ -144,7 +147,7 @@ export default function SearchPane({ workspaceRoot }: SearchPaneProps) {
           disabled={!query.trim() || isSearching}
           className="w-full mt-2 py-1 rounded text-[11px] font-medium cursor-pointer disabled:opacity-50 border-none"
           style={{
-            backgroundColor: "var(--theme-accent-80)",
+            backgroundColor: "var(--theme-accent)",
             color: "var(--theme-text-inverse)",
           }}
         >
@@ -237,10 +240,11 @@ function PatternInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="flex-1 px-2 py-0.5 rounded text-[11px] bg-transparent outline-none"
+      className="flex-1 px-2 py-0.5 rounded text-[11px] outline-none"
       style={{
         border: "1px solid var(--theme-border)",
         color: "var(--theme-text-primary)",
+        backgroundColor: "var(--theme-surface)",
       }}
     />
   );
