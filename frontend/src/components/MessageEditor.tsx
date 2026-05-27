@@ -602,7 +602,7 @@ export default function MessageEditor({
         const queue: { path: string; depth: number }[] = [{ path: root, depth: 0 }];
         const visited = new Set<string>();
 
-        while (queue.length > 0 && fileItems.length < 300) {
+        while (queue.length > 0) {
           const { path: dirPath, depth } = queue.shift()!;
           if (visited.has(dirPath)) continue;
           visited.add(dirPath);
@@ -761,9 +761,12 @@ export default function MessageEditor({
     content: "",
     editable: !disabled,
     editorProps: {
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
         const data = event.clipboardData;
         if (!data) return false;
+
+        // Use the editor instance from the view (avoids stale closure)
+        const editorInstance = (view as any)?.editor || editor;
 
         // 1. Images — highest priority
         // Try clipboardData.files first (works in most modern browsers + Electron)
@@ -774,8 +777,8 @@ export default function MessageEditor({
               const reader = new FileReader();
               reader.onload = (e) => {
                 const dataUrl = e.target?.result as string;
-                if (dataUrl && editor) {
-                  editor.chain().focus().setImage({ src: dataUrl }).run();
+                if (dataUrl && editorInstance) {
+                  editorInstance.chain().focus().setImage({ src: dataUrl }).run();
                 }
               };
               reader.readAsDataURL(file);
@@ -795,8 +798,8 @@ export default function MessageEditor({
               const reader = new FileReader();
               reader.onload = (e) => {
                 const dataUrl = e.target?.result as string;
-                if (dataUrl && editor) {
-                  editor.chain().focus().setImage({ src: dataUrl }).run();
+                if (dataUrl && editorInstance) {
+                  editorInstance.chain().focus().setImage({ src: dataUrl }).run();
                 }
               };
               reader.readAsDataURL(file);
@@ -820,11 +823,11 @@ export default function MessageEditor({
         const plainText = data.getData("text/plain");
         if (plainText && !htmlText && looksLikeMarkdown(plainText)) {
           event.preventDefault();
-          const json = markdownToTiptapJson(plainText, editor?.view.state.schema);
+          const json = markdownToTiptapJson(plainText, editorInstance?.view?.state?.schema);
           if (json) {
-            editor?.chain().focus().insertContent(json).run();
+            editorInstance?.chain().focus().insertContent(json).run();
           } else {
-            editor?.chain().focus().insertContent(plainText).run();
+            editorInstance?.chain().focus().insertContent(plainText).run();
           }
           return true;
         }
@@ -837,9 +840,12 @@ export default function MessageEditor({
         // 5. Plain text paste — let default handler deal with it
         return false;
       },
-      handleDrop: (_view, event) => {
+      handleDrop: (view, event) => {
         const dt = event.dataTransfer;
         if (!dt) return false;
+
+        // Use the editor instance from the view (avoids stale closure)
+        const editorInstance = (view as any)?.editor || editor;
 
         // 1. OS file drop (images from file manager)
         const files = dt.files;
@@ -850,14 +856,14 @@ export default function MessageEditor({
               const reader = new FileReader();
               reader.onload = (e) => {
                 const dataUrl = e.target?.result as string;
-                if (dataUrl && editor) {
-                  editor.chain().focus().setImage({ src: dataUrl }).run();
+                if (dataUrl && editorInstance) {
+                  editorInstance.chain().focus().setImage({ src: dataUrl }).run();
                 }
               };
               reader.readAsDataURL(file);
             } else {
               // Insert a file mention
-              editor
+              editorInstance
                 ?.chain()
                 .focus()
                 .insertContent({
@@ -879,19 +885,19 @@ export default function MessageEditor({
         if (textPath && textPath.startsWith(workspaceRoot || "")) {
           event.preventDefault();
           const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(textPath);
-          if (isImage && editor) {
+          if (isImage && editorInstance) {
             // Use binary endpoint to read image and embed as base64
             import("../lib/rpc").then(({ fsApi }) => {
               fsApi.readFileBinary({ path: textPath })
                 .then((resp) => {
                   if (resp.data) {
                     const dataUrl = `data:${resp.mimeType};base64,${resp.data}`;
-                    editor.chain().focus().setImage({ src: dataUrl }).run();
+                    editorInstance.chain().focus().setImage({ src: dataUrl }).run();
                   }
                 })
                 .catch(() => {
                   // Fallback: mention the image file
-                  editor.chain().focus().insertContent({
+                  editorInstance.chain().focus().insertContent({
                     type: "mention",
                     attrs: {
                       id: textPath,
@@ -903,7 +909,7 @@ export default function MessageEditor({
             });
           } else {
             // Insert a file mention
-            editor
+            editorInstance
               ?.chain()
               .focus()
               .insertContent({
