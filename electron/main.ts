@@ -68,26 +68,29 @@ function loadShellEnv(): void {
   if (process.platform === "win32") return;
 
   const shell = process.env.SHELL || "/bin/bash";
+  const shellName = path.basename(shell);
 
-  // Try multiple strategies — Ubuntu 24.04 chokes on interactive shells without a TTY
-  const strategies = [
-    // Strategy 1: login + interactive (works for most setups that source .bashrc in .bash_profile)
-    `${shell} -l -c 'env -0'`,
-    // Strategy 2: source .bashrc explicitly (for setups where .bashrc isn't sourced in login shells)
-    `${shell} -l -c 'source ~/.bashrc 2>/dev/null; env -0'`,
-    // Strategy 3: just source .bashrc directly
-    `${shell} -c 'source ~/.bashrc 2>/dev/null; env -0'`,
-    // Strategy 4: plain login shell without any extras
-    `${shell} -lc 'env -0'`,
-  ];
+  // Build shell-specific strategies to capture the full user environment.
+  // The -i flag is critical for bash/sh: without it, .bashrc exits early
+  // because of the "If not running interactively" guard, so fnm/nvm/uv
+  // never get a chance to set up PATH.
+  const strategies: string[] = [];
+  if (shellName === "bash" || shellName === "sh") {
+    strategies.push(`${shell} -ilc 'env -0'`);
+    strategies.push(`${shell} -lc 'env -0'`);
+  } else if (shellName === "zsh") {
+    strategies.push(`${shell} -ilc 'env -0'`);
+    strategies.push(`${shell} -lc 'env -0'`);
+  } else {
+    strategies.push(`${shell} -lc 'env -0'`);
+    strategies.push(`${shell} -c 'env -0'`);
+  }
 
   for (const cmd of strategies) {
     try {
       const envOutput = execSync(cmd, {
         encoding: "utf-8",
         timeout: 5000,
-        // Don't throw on non-zero exit — bash warnings about job control etc
-        // shouldn't kill the entire env capture
       });
       const vars = envOutput.split("\0");
       let updated = 0;
@@ -103,10 +106,10 @@ function loadShellEnv(): void {
           }
         }
       }
-      logInfo("loadShellEnv: captured", updated, "vars via strategy:", cmd.slice(0, 60));
+      logInfo("loadShellEnv: captured", updated, "vars via:", cmd);
       return; // Success — bail out
     } catch (err) {
-      logWarn("loadShellEnv: strategy failed:", cmd.slice(0, 60), "—", String(err).slice(0, 120));
+      logWarn("loadShellEnv: strategy failed:", cmd, "—", String(err).slice(0, 120));
     }
   }
 

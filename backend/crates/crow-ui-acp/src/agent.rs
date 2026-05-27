@@ -12,6 +12,112 @@ use tokio::sync::{broadcast, Mutex};
 use crate::terminals::AcpTerminalManager;
 use tracing::{info, warn};
 
+// ---------------------------------------------------------------------------
+// Shell environment capture (works even when parent PATH is broken)
+// ---------------------------------------------------------------------------
+
+/// Cached shell environment so we only capture it once per manager.
+#[derive(Debug, Clone)]
+struct ShellEnvCache {
+    env: HashMap<String, String>,
+    captured: bool,
+}
+
+impl ShellEnvCache {
+    fn new() -> Self {
+        Self {
+            env: HashMap::new(),
+            captured: false,
+        }
+    }
+}
+
+/// Capture the user's full shell environment by spawning a login+interactive shell.
+/// This ensures .bashrc / .zshrc are sourced, so fnm/nvm/uv/etc. set up PATH.
+async fn capture_shell_env(cache: &mut ShellEnvCache) {
+    if cache.captured {
+        return;
+    }
+    cache.captured = true;
+
+    #[cfg(target_os = "windows")] {
+        // Windows: inherit parent env as-is for now
+        return;
+    }
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    let shell_name = std::path::Path::new(&shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("bash");
+
+    // Build strategies: -ilc (interactive login) first, then -lc (login only)
+    let strategies: Vec<String> = match shell_name {
+        "bash" | "sh" => vec![
+            format!("{} -ilc 'env -0'", shell),
+            format!("{} -lc 'env -0'", shell),
+        ],
+        "zsh" => vec![
+            format!("{} -ilc 'env -0'", shell),
+            format!("{} -lc 'env -0'", shell),
+        ],
+        _ => vec![
+            format!("{} -lc 'env -0'", shell),
+            format!("{} -c 'env -0'", shell),
+        ],
+    };
+
+    for cmd_str in &strategies {
+        let parts: Vec<&str> = cmd_str.splitn(3, ' ').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let shell_bin = parts[0];
+        let flag = parts[1];
+        let env_arg = parts[2].trim_matches('\'');
+
+        let output = match tokio::process::Command::new(shell_bin)
+            .arg(flag)
+            .arg(env_arg)
+            .output()
+            .await
+        {
+            Ok(o) if o.status.success() => o,
+            Ok(o) => {
+                warn!("capture_shell_env: {} exited with code {:?}", cmd_str, o.status.code());
+                continue;
+            }
+            Err(e) => {
+                warn!("capture_shell_env: failed to run {}: {}", cmd_str, e);
+                continue;
+            }
+        };
+
+        let env_output = String::from_utf8_lossy(&output.stdout);
+        let mut count = 0;
+        for var in env_output.split('\0') {
+            if let Some(eq) = var.find('=') {
+                let key = &var[..eq];
+                let val = &var[eq + 1..];
+                if !key.is_empty() {
+                    cache.env.insert(key.to_string(), val.to_string());
+                    count += 1;
+                }
+            }
+        }
+
+        info!("capture_shell_env: captured {} vars via {}", count, cmd_str);
+
+        // Log PATH so we can verify fnm/nvm/uv are present
+        if let Some(path) = cache.env.get("PATH") {
+            info!("capture_shell_env: captured PATH = {}", path);
+        }
+        return;
+    }
+
+    warn!("capture_shell_env: all strategies failed, using inherited env");
+}
+
 /// Configuration for an ACP agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
@@ -44,6 +150,8 @@ pub struct AgentManager {
     pub events_tx: broadcast::Sender<String>,
     /// ACP terminal sessions spawned by agents.
     pub terminals: Arc<AcpTerminalManager>,
+    /// Cached shell environment (captured once on first spawn).
+    shell_env: Mutex<ShellEnvCache>,
 }
 
 impl AgentManager {
@@ -53,6 +161,7 @@ impl AgentManager {
             next_id: Mutex::new(1),
             events_tx: broadcast::Sender::new(1024),
             terminals: Arc::new(AcpTerminalManager::new()),
+            shell_env: Mutex::new(ShellEnvCache::new()),
         }
     }
 
@@ -68,6 +177,14 @@ impl AgentManager {
 
         info!("Spawning agent '{}' (id={}) in {}", config.name, id, cwd);
 
+        // Capture shell environment on first spawn so agents always get
+        // the user's full PATH (fnm, nvm, uv, etc.) even when the parent
+        // process inherited a broken PATH from Electron.
+        let mut shell_env_guard = self.shell_env.lock().await;
+        capture_shell_env(&mut shell_env_guard).await;
+        let shell_env = shell_env_guard.env.clone();
+        drop(shell_env_guard);
+
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args)
             .current_dir(cwd)
@@ -75,11 +192,21 @@ impl AgentManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Inherit parent's environment (PATH, fnm, nvm, uv, etc.) by default.
-        // tokio::process::Command inherits the full parent env automatically,
-        // but we explicitly ensure PATH is preserved for Ubuntu 24.04 / Electron.
-        if let Ok(path) = std::env::var("PATH") {
-            info!("Agent {} PATH (inherited): {}", id, path);
+        // Apply captured shell env first, then inherited env, then user overrides.
+        // Shell env wins for PATH so fnm/nvm/uv entries are present.
+        for (k, v) in &shell_env {
+            cmd.env(k, v);
+        }
+
+        // Log what PATH the agent will see
+        let effective_path = shell_env
+            .get("PATH")
+            .cloned()
+            .or_else(|| std::env::var("PATH").ok());
+        if let Some(ref path) = effective_path {
+            info!("Agent {} PATH (shell-captured): {}", id, path);
+        } else {
+            warn!("Agent {} has no PATH!", id);
         }
 
         for env in &config.env {
