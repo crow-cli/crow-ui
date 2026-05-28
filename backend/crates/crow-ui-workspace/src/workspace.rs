@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::file_tree::FileTree;
+use crate::fuzzy_file_finder::FileIndex;
 
 const MAX_RECENT: usize = 50;
 
@@ -10,16 +11,19 @@ const MAX_RECENT: usize = 50;
 pub struct Workspace {
     root: PathBuf,
     file_tree: FileTree,
+    file_index: FileIndex,
     recent_files: Vec<PathBuf>,
 }
 
 impl Workspace {
-    /// Open a workspace at `root`, scanning its file tree.
+    /// Open a workspace at `root`, scanning its file tree and building file index.
     pub fn open(root: &Path) -> Self {
         let file_tree = FileTree::scan(root);
+        let file_index = FileIndex::build(root);
         Self {
             root: root.to_path_buf(),
             file_tree,
+            file_index,
             recent_files: Vec::new(),
         }
     }
@@ -37,6 +41,16 @@ impl Workspace {
     /// Mutable access for expanding / refreshing subtrees.
     pub fn file_tree_mut(&mut self) -> &mut FileTree {
         &mut self.file_tree
+    }
+
+    /// The fuzzy file index for fast path search.
+    pub fn file_index(&self) -> &FileIndex {
+        &self.file_index
+    }
+
+    /// Mutable access for updating the file index.
+    pub fn file_index_mut(&mut self) -> &mut FileIndex {
+        &mut self.file_index
     }
 
     /// Recently opened files (most recent first).

@@ -1116,6 +1116,37 @@ pub async fn handle_save_agent_profile(state: &AppState, req: SaveAgentProfileRe
     Ok(SaveAgentProfileResponse { success: true })
 }
 
+pub fn handle_search_files(state: &AppState, req: SearchFilesRequest) -> Result<SearchFilesResponse, String> {
+    let ws = state.workspace.lock();
+    let ws = ws.as_ref().ok_or("No workspace open")?;
+
+    let matches = ws.file_index().query(&req.query, req.max_results);
+
+    let _root_str = ws.root().to_string_lossy();
+    let files = matches
+        .into_iter()
+        .map(|m| {
+            let path_str = m.path.to_string_lossy().into_owned();
+            let relative_path = m.path
+                .strip_prefix(ws.root())
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| path_str.clone());
+            let name = m.path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            FileSearchResult {
+                path: path_str,
+                relative_path,
+                name,
+                score: m.score,
+            }
+        })
+        .collect();
+
+    Ok(SearchFilesResponse { files })
+}
+
 pub fn handle_delete_agent_profile(state: &AppState, req: DeleteAgentProfileRequest) -> Result<DeleteAgentProfileResponse, String> {
     let config_path = profiles_dir(state).join(format!("{}.yaml", req.name));
     let prompt_path = prompts_dir(state).join(format!("{}.jinja2", req.name));

@@ -49,14 +49,6 @@ interface MessageEditorProps {
   onModelChange?: (modelValue: string) => void;
 }
 
-interface MentionItem {
-  id: string;
-  label: string;
-  icon: string;
-  category: string;
-  resolve: () => ContentBlock;
-}
-
 interface PopupItem {
   id: string;
   label: string;
@@ -109,6 +101,7 @@ const SuggestionPopup = forwardRef<
     if (ref && typeof ref === "object") {
       (ref as React.MutableRefObject<SuggestionPopupRef>).current = {
         onKeyDown: ({ event }: SuggestionKeyDownProps) => {
+          if (items.length === 0) return false;
           if (event.key === "ArrowUp") {
             setSelectedIndex((i) => (i + items.length - 1) % items.length);
             return true;
@@ -136,6 +129,14 @@ const SuggestionPopup = forwardRef<
     },
     {} as Record<string, PopupItem[]>,
   );
+
+  if (items.length === 0) {
+    return (
+      <div className="suggestions-popup">
+        <div className="suggestion-item suggestion-no-results">No results</div>
+      </div>
+    );
+  }
 
   return (
     <div className="suggestions-popup">
@@ -168,20 +169,43 @@ const SuggestionPopup = forwardRef<
 // ─── Suggestion Config Factory ─────────────────────────────────────────────
 
 function makeSuggestionConfig(
-  getItems: () => PopupItem[],
+  workspaceRoot: string | null,
   openRef?: React.MutableRefObject<boolean>,
 ) {
+  const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]);
+
   return {
     char: "@",
-    items: ({ query }: { query: string }) => {
-      const allItems = getItems();
-      const q = query.toLowerCase().trim();
-      if (!q) return allItems;
-      return allItems.filter(
-        (item) =>
-          item.label.toLowerCase().includes(q) ||
-          item.id.toLowerCase().includes(q),
-      );
+    items: async ({ query }: { query: string }) => {
+      const staticItems: PopupItem[] = [
+        {
+          id: "selection",
+          label: "Selection",
+          icon: "🎯",
+          category: "Context",
+        },
+      ];
+
+      if (!workspaceRoot) return staticItems;
+
+      const q = query.trim();
+      try {
+        const { fsApi } = await import("../lib/rpc");
+        const resp = await fsApi.searchFiles({ query: q, maxResults: 50 });
+        const fileItems = resp.files.map((f) => {
+          const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
+          const isImage = IMAGE_EXTS.has(ext);
+          return {
+            id: f.path,
+            label: f.relativePath,
+            icon: isImage ? "🖼️" : "📄",
+            category: isImage ? "Images" : "Files",
+          };
+        });
+        return [...staticItems, ...fileItems];
+      } catch {
+        return staticItems;
+      }
     },
     render: () => {
       let component: ReactRenderer<SuggestionPopupRef>;
@@ -520,9 +544,6 @@ function markdownToTiptapJson(
 
 // ─── MessageEditor Component ───────────────────────────────────────────────
 
-/** Stable mention items ref so suggestion config always reads current values */
-const mentionItemsRef = { current: [] as PopupItem[] };
-
 export default function MessageEditor({
   workspaceRoot,
   disabled,
@@ -535,7 +556,6 @@ export default function MessageEditor({
   onCancel,
   onModelChange,
 }: MessageEditorProps) {
-  const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const suggestionOpenRef = useRef(false);
   const lastDraftRef = useRef<string | undefined>(undefined);
@@ -552,147 +572,14 @@ export default function MessageEditor({
     }
   }, [modelConfig?.currentValue]);
 
-  // Build mention items from workspace files (recursive scan)
-  useEffect(() => {
-    if (!workspaceRoot) {
-      setMentionItems([]);
-      mentionItemsRef.current = [];
-      return;
-    }
-
-    const items: MentionItem[] = [
-      {
-        id: "selection",
-        label: "Selection",
-        icon: "🎯",
-        category: "Context",
-        resolve: () => ({
-          type: "resource_link",
-          uri: "selection://",
-          name: "Selection",
-        }),
-      },
-    ];
-
-    const root = workspaceRoot;
-    const SKIP_DIRS = new Set([
-      "node_modules",
-      "target",
-      "dist",
-      "build",
-      ".git",
-      "__pycache__",
-      ".venv",
-      "venv",
-      ".next",
-      ".turbo",
-      "out",
-      "coverage",
-      ".cache",
-    ]);
-    const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]);
-
-    let cancelled = false;
-    let unsubWorktree: (() => void) | undefined;
-
-    async function loadFiles() {
-      try {
-        const { fsApi } = await import("../lib/rpc");
-        const fileItems: MentionItem[] = [];
-        const queue: { path: string; depth: number }[] = [{ path: root, depth: 0 }];
-        const visited = new Set<string>();
-
-        while (queue.length > 0) {
-          const { path: dirPath, depth } = queue.shift()!;
-          if (visited.has(dirPath)) continue;
-          visited.add(dirPath);
-
-          let entries;
-          try {
-            const resp = await fsApi.readDir({ path: dirPath });
-            entries = resp.entries;
-          } catch {
-            continue;
-          }
-
-          for (const entry of entries) {
-            if (entry.isFile) {
-              const ext = entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase();
-              const isImage = IMAGE_EXTS.has(ext);
-              const relPath = entry.path.slice(root.length + 1); // relative to workspace root
-              const displayPath = depth === 0 ? entry.name : relPath;
-
-              fileItems.push({
-                id: entry.path,
-                label: displayPath,
-                icon: isImage ? "🖼️" : "📄",
-                category: isImage ? "Images" : depth === 0 ? "Files" : entry.path.slice(0, entry.path.lastIndexOf("/")).slice(root.length + 1) || "Files",
-                resolve: () => ({
-                  type: "resource_link",
-                  uri: `file://${entry.path}`,
-                  name: entry.name,
-                }),
-              });
-            } else if (
-              entry.isDir &&
-              !entry.name.startsWith(".") &&
-              !SKIP_DIRS.has(entry.name)
-            ) {
-              queue.push({ path: entry.path, depth: depth + 1 });
-            }
-          }
-        }
-
-        if (cancelled) return;
-
-        const all = [...items, ...fileItems];
-        setMentionItems(all);
-        mentionItemsRef.current = all.map((m) => ({
-          id: m.id,
-          label: m.label,
-          icon: m.icon,
-          category: m.category,
-        }));
-      } catch {
-        if (cancelled) return;
-        setMentionItems(items);
-        mentionItemsRef.current = items.map((m) => ({
-          id: m.id,
-          label: m.label,
-          icon: m.icon,
-          category: m.category,
-        }));
-      }
-    }
-
-    async function setup() {
-      await loadFiles();
-
-      // Refresh file list when worktree changes (files created/deleted)
-      const { ws } = await import("../lib/ws-client");
-      unsubWorktree = ws.onWorktreeEvent((method) => {
-        if (method === "worktree-file-created" || method === "worktree-file-deleted" || method === "worktree-file-changed") {
-          loadFiles();
-        }
-      });
-    }
-
-    setup();
-
-    return () => {
-      cancelled = true;
-      unsubWorktree?.();
-    };
-  }, [workspaceRoot]);
-
-  // Stable extension that reads items from ref (not captured at creation time)
+  // Stable extension — suggestion queries backend on every keystroke
   const CustomMention = useMemo(() => {
     return Mention.extend({
       renderHTML({ node, HTMLAttributes }) {
         const label = node.attrs.label as string;
         const id = node.attrs.id as string;
-        const item = mentionItems.find((m) => m.id === id);
-        const icon = item?.icon ?? "🔗";
+        const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(id);
+        const icon = id === "selection" ? "🎯" : isImage ? "🖼️" : "📄";
         return [
           "span",
           {
@@ -705,10 +592,10 @@ export default function MessageEditor({
         ];
       },
     }).configure({
-      suggestion: makeSuggestionConfig(() => mentionItemsRef.current, suggestionOpenRef),
+      suggestion: makeSuggestionConfig(workspaceRoot, suggestionOpenRef),
       HTMLAttributes: { class: "mention-chip" },
     });
-  }, []); // stable — items function reads from ref
+  }, [workspaceRoot]);
 
   // Ref so the keyboard shortcut extension always calls the latest callback
   const handleSendRef = useRef(() => {});

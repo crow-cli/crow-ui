@@ -1197,6 +1197,38 @@ pub struct FetchProviderModelsResponse {
     pub error: Option<String>,
 }
 
+// ─── Fuzzy File Search ─────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SearchFilesRequest {
+    pub query: String,
+    #[serde(default = "default_max_results")]
+    pub max_results: usize,
+}
+
+fn default_max_results() -> usize {
+    50
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SearchFilesResponse {
+    pub files: Vec<FileSearchResult>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileSearchResult {
+    pub path: String,
+    pub relative_path: String,
+    pub name: String,
+    pub score: f64,
+}
+
 // ─── Error Response ────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, TS)]

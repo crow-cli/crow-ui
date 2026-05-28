@@ -50,6 +50,8 @@ import type {
   ReadDirRequest,
   ReadDirResponse,
   ReadFileRequest,
+  SearchFilesRequest,
+  SearchFilesResponse,
   ReadFileResponse,
   ReadFileBinaryRequest,
   ReadFileBinaryResponse,
@@ -238,6 +240,9 @@ export const fsApi = {
 
   remove: (req: RemoveRequest): Promise<RemoveResponse> =>
     invoke("remove", req),
+
+  searchFiles: (req: SearchFilesRequest): Promise<SearchFilesResponse> =>
+    invoke("search_files", req),
 };
 
 // ─── ACP API ───────────────────────────────────────────────────────────────
