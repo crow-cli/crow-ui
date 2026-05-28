@@ -45,6 +45,7 @@ class WsClient {
   private acpCommandHandlers = new Set<(method: string, params: Record<string, unknown>) => void>();
   private acpSessionHandlers = new Set<(sessionId: string, update: unknown) => void>();
   private acpSessionDisconnectHandlers = new Set<(sessionId: string) => void>();
+  private panelEventHandlers = new Set<(params: Record<string, unknown>) => void>();
   private worktreeHandlers = new Set<(method: string, params: Record<string, unknown>) => void>();
 
   constructor(private url: string) {}
@@ -134,6 +135,10 @@ class WsClient {
       for (const handler of this.acpSessionDisconnectHandlers) {
         handler(sessionId);
       }
+    } else if (method === "acp-new-panel") {
+      for (const handler of this.panelEventHandlers) {
+        handler(params);
+      }
     } else if (method.startsWith("worktree-file-")) {
       for (const handler of this.worktreeHandlers) {
         handler(method, params);
@@ -164,6 +169,11 @@ class WsClient {
   onAcpSessionDisconnected(handler: (sessionId: string) => void): () => void {
     this.acpSessionDisconnectHandlers.add(handler);
     return () => this.acpSessionDisconnectHandlers.delete(handler);
+  }
+
+  onPanelEvent(handler: (params: Record<string, unknown>) => void): () => void {
+    this.panelEventHandlers.add(handler);
+    return () => this.panelEventHandlers.delete(handler);
   }
 
   onWorktreeEvent(handler: (method: string, params: Record<string, unknown>) => void): () => void {

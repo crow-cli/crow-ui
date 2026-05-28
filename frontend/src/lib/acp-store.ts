@@ -9,6 +9,7 @@ import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { ws } from "../lib/ws-client";
 import type { AgentConfig, McpServerConfig } from "./acp-client";
 import { getSetting } from "./settings";
+import type { SessionListEntry } from "../bindings";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,7 @@ export type ConnectionStatus =
   | "connecting"
   | "connected"
   | "initializing"
+  | "listing_sessions"
   | "creating_session"
   | "ready";
 
@@ -202,6 +204,222 @@ export function closeSession(sessionId: string): void {
       remaining.length > 0 ? remaining[remaining.length - 1] : null;
   }
   notifyMeta();
+}
+
+// ─── Connection-based session lifecycle ────────────────────────────────────
+
+export interface ConnectionState {
+  connectionId: string;
+  agentConfig: AgentConfig;
+  cwd: string;
+  status: ConnectionStatus;
+  availableSessions: SessionListEntry[];
+}
+
+const connections = new Map<string, ConnectionState>();
+
+export async function initConnection(
+  config: AgentConfig,
+  cwd: string,
+): Promise<string> {
+  const allMcpServers = await getSetting<McpServerConfig[]>("acp.mcpServers", []);
+  const mcpServers = (allMcpServers || []).filter((mcp) =>
+    config.mcpServerIds?.includes(mcp.name)
+  );
+
+  const response = await fetch("/api/acp/connections/init", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: config.name,
+      command: config.command,
+      args: config.args || [],
+      env: config.env || [],
+      cwd,
+      configFile: config.configFile || null,
+      mcpServers,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+
+  const result = await response.json();
+  const connectionId = result.connectionId as string;
+
+  connections.set(connectionId, {
+    connectionId,
+    agentConfig: config,
+    cwd,
+    status: "connected",
+    availableSessions: [],
+  });
+
+  return connectionId;
+}
+
+export async function listConnectionSessions(
+  connectionId: string,
+  cwd: string,
+): Promise<SessionListEntry[]> {
+  const response = await fetch(
+    `/api/acp/connections/${encodeURIComponent(connectionId)}/list`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd }),
+    },
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+
+  const result = await response.json();
+  const sessions = (result.sessions || []) as SessionListEntry[];
+
+  const conn = connections.get(connectionId);
+  if (conn) {
+    conn.availableSessions = sessions;
+  }
+
+  return sessions;
+}
+
+export async function bindNewSession(
+  connectionId: string,
+  cwd: string,
+): Promise<string> {
+  const conn = connections.get(connectionId);
+  const allMcpServers = await getSetting<McpServerConfig[]>("acp.mcpServers", []);
+  const mcpServers = (allMcpServers || []).filter((mcp) =>
+    conn?.agentConfig.mcpServerIds?.includes(mcp.name)
+  );
+
+  const response = await fetch(
+    `/api/acp/connections/${encodeURIComponent(connectionId)}/new`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd, mcpServers }),
+    },
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+
+  const result = await response.json();
+  const sessionId = result.sessionId as string;
+
+  // Create session state
+  const state: SessionState = {
+    status: "ready",
+    promptTurnState: { status: "idle" },
+    sessionInfo: {
+      sessionId,
+      agentId: result.agentId || "",
+      agentName: conn?.agentConfig.name || "agent",
+      agentDisplayName: conn?.agentConfig.name || "agent",
+      cwd,
+      createdAt: new Date().toISOString(),
+      configOptions: result.configOptions || undefined,
+    },
+    notifications: [],
+    pendingPermission: null,
+    cwd,
+    agentConfig: conn?.agentConfig || null,
+    queuedItems: [],
+  };
+  sessions.set(sessionId, state);
+
+  if (!defaultSessionId) defaultSessionId = sessionId;
+  notifyMeta();
+  notifySession(sessionId);
+
+  // Clean up connection
+  connections.delete(connectionId);
+
+  return sessionId;
+}
+
+export async function bindLoadSession(
+  connectionId: string,
+  targetSessionId: string,
+  cwd: string,
+): Promise<string> {
+  const conn = connections.get(connectionId);
+  const allMcpServers = await getSetting<McpServerConfig[]>("acp.mcpServers", []);
+  const mcpServers = (allMcpServers || []).filter((mcp) =>
+    conn?.agentConfig.mcpServerIds?.includes(mcp.name)
+  );
+
+  const response = await fetch(
+    `/api/acp/connections/${encodeURIComponent(connectionId)}/load`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetSessionId, cwd, mcpServers }),
+    },
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+
+  const result = await response.json();
+  const sessionId = result.sessionId as string;
+
+  // Create session state
+  const state: SessionState = {
+    status: "ready",
+    promptTurnState: { status: "idle" },
+    sessionInfo: {
+      sessionId,
+      agentId: result.agentId || "",
+      agentName: conn?.agentConfig.name || "agent",
+      agentDisplayName: conn?.agentConfig.name || "agent",
+      cwd,
+      createdAt: new Date().toISOString(),
+      configOptions: result.configOptions || undefined,
+    },
+    notifications: [],
+    pendingPermission: null,
+    cwd,
+    agentConfig: conn?.agentConfig || null,
+    queuedItems: [],
+  };
+  sessions.set(sessionId, state);
+
+  if (!defaultSessionId) defaultSessionId = sessionId;
+  notifyMeta();
+  notifySession(sessionId);
+
+  // Clean up connection
+  connections.delete(connectionId);
+
+  return sessionId;
+}
+
+export async function closeConnection(connectionId: string): Promise<void> {
+  const response = await fetch(
+    `/api/acp/connections/${encodeURIComponent(connectionId)}/close`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${response.status}`);
+  }
+  connections.delete(connectionId);
+}
+
+export function getConnection(connectionId: string): ConnectionState | undefined {
+  return connections.get(connectionId);
 }
 
 function reconnect(config: AgentConfig, cwd: string) {

@@ -1229,6 +1229,179 @@ pub struct FileSearchResult {
     pub score: f64,
 }
 
+// ─── Session List / Load ───────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ListSessionsRequest {
+    pub session_id: String,
+    pub cwd: String,
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SessionListEntry {
+    pub session_id: String,
+    pub title: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub message_count: i32,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ListSessionsResponse {
+    pub sessions: Vec<SessionListEntry>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LoadSessionRequest {
+    pub session_id: String,
+    pub target_session_id: String,
+    pub cwd: String,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LoadSessionResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub config_options: Option<serde_json::Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+// ─── Connection-based Session Flow ───────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct InitConnectionRequest {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<String>,
+    pub cwd: String,
+    #[serde(default)]
+    pub config_file: Option<String>,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct InitConnectionResponse {
+    pub connection_id: String,
+    pub agent_id: String,
+    pub config_options: Option<serde_json::Value>,
+    pub modes: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionListSessionsRequest {
+    pub connection_id: String,
+    pub cwd: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionListSessionsResponse {
+    pub sessions: Vec<SessionListEntry>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionNewSessionRequest {
+    pub connection_id: String,
+    pub cwd: String,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionNewSessionResponse {
+    pub session_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub config_options: Option<serde_json::Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionLoadSessionRequest {
+    pub connection_id: String,
+    pub target_session_id: String,
+    pub cwd: String,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionLoadSessionResponse {
+    pub session_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub config_options: Option<serde_json::Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionCloseRequest {
+    pub connection_id: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConnectionCloseResponse {
+    pub success: bool,
+}
+
+// ─── Backend-controlled Panel Creation ───────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CreatePanelRequest {
+    pub panel_type: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CreatePanelResponse {
+    pub success: bool,
+}
+
 // ─── Error Response ────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, TS)]

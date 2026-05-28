@@ -111,6 +111,22 @@ import type {
   SetCrowCliEnvResponse,
   FetchProviderModelsRequest,
   FetchProviderModelsResponse,
+  ListSessionsRequest,
+  ListSessionsResponse,
+  LoadSessionRequest,
+  LoadSessionResponse,
+  InitConnectionRequest,
+  InitConnectionResponse,
+  ConnectionListSessionsRequest,
+  ConnectionListSessionsResponse,
+  ConnectionNewSessionRequest,
+  ConnectionNewSessionResponse,
+  ConnectionLoadSessionRequest,
+  ConnectionLoadSessionResponse,
+  ConnectionCloseRequest,
+  ConnectionCloseResponse,
+  CreatePanelRequest,
+  CreatePanelResponse,
 } from "../bindings";
 
 // ─── Helper ────────────────────────────────────────────────────────────────
@@ -289,6 +305,83 @@ export const acpApi = {
 
   terminalResize: (req: AcpTerminalResizeRequest): Promise<AcpTerminalResizeResponse> =>
     invoke("acp_terminal_resize", req),
+};
+
+// ─── Session API ───────────────────────────────────────────────────────────
+
+export const sessionApi = {
+  list: (req: ListSessionsRequest): Promise<ListSessionsResponse> =>
+    invoke("list_sessions", req),
+
+  load: (req: LoadSessionRequest): Promise<LoadSessionResponse> =>
+    invoke("load_session", req),
+};
+
+// ─── Connection API ────────────────────────────────────────────────────────
+
+export const connectionApi = {
+  init: (req: InitConnectionRequest): Promise<InitConnectionResponse> =>
+    fetch("/api/acp/connections/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
+
+  listSessions: (connectionId: string, req: ConnectionListSessionsRequest): Promise<ConnectionListSessionsResponse> =>
+    fetch(`/api/acp/connections/${encodeURIComponent(connectionId)}/list`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
+
+  bindNewSession: (connectionId: string, req: ConnectionNewSessionRequest): Promise<ConnectionNewSessionResponse> =>
+    fetch(`/api/acp/connections/${encodeURIComponent(connectionId)}/new`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
+
+  bindLoadSession: (connectionId: string, req: ConnectionLoadSessionRequest): Promise<ConnectionLoadSessionResponse> =>
+    fetch(`/api/acp/connections/${encodeURIComponent(connectionId)}/load`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
+
+  close: (connectionId: string): Promise<ConnectionCloseResponse> =>
+    fetch(`/api/acp/connections/${encodeURIComponent(connectionId)}/close`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
+};
+
+// ─── Panel API ─────────────────────────────────────────────────────────────
+
+export const panelApi = {
+  create: (req: CreatePanelRequest): Promise<CreatePanelResponse> =>
+    fetch("/api/acp/panels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }),
 };
 
 // ─── Crow CLI Config API ───────────────────────────────────────────────────

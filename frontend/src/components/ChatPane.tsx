@@ -18,8 +18,9 @@ import { groupNotifications, mergeToolCalls } from "../lib/acp-utils";
 import * as acpStore from "../lib/acp-store";
 import { getCachedFile, cacheFile } from "../lib/file-cache";
 import { ws } from "../lib/ws-client";
-import { fsApi } from "../lib/rpc";
+import { fsApi, sessionApi } from "../lib/rpc";
 import * as settings from "../lib/settings";
+import type { SessionListEntry } from "../bindings";
 import InlineTerminal from "./InlineTerminal";
 import { FileReadView, FileWriteView, FileEditView } from "./FileViews";
 import { WebFetchView, WebSearchView } from "./WebViews";
@@ -70,6 +71,12 @@ export default function ChatPane({
   const [promptTurnState, setPromptTurnState] = useState<PromptTurnState>({ status: "idle" });
   const [availableAgents, setAvailableAgents] = useState<AgentConfig[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [availableSessions, setAvailableSessions] = useState<SessionListEntry[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [connectionId, setConnectionId] = useState<string | undefined>(undefined);
+  const [isConnectionInitialized, setIsConnectionInitialized] = useState(false);
+  const [isListingSessions, setIsListingSessions] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -79,11 +86,21 @@ export default function ChatPane({
   /** true = next scroll event came from our own programmatic scroll, ignore it */
   const isProgrammaticScrollRef = useRef(false);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  /** Ref to track connectionId for cleanup on unmount */
+  const connectionIdRef = useRef<string | undefined>(undefined);
 
   const chatFontSize = settings.useWorkbenchFontSize("chat");
 
+  // Keep ref in sync with state so cleanup can access latest value
+  useEffect(() => {
+    connectionIdRef.current = connectionId;
+  }, [connectionId]);
+
   const effectiveSessionId = sessionId || localSessionId;
   const activeSessionId = effectiveSessionId || "disconnected";
+
+  const isReady =
+    connectionStatus === "ready" || connectionStatus === "connected";
 
   // Load available agents from settings
   useEffect(() => {
@@ -121,11 +138,39 @@ export default function ChatPane({
     return unsub;
   }, [activeSessionId]);
 
-  // Close session on unmount (tab deleted)
+  // Fetch available sessions when connected
+  useEffect(() => {
+    if (!isReady || !effectiveSessionId || !workspaceRoot) return;
+
+    sessionApi
+      .list({ sessionId: effectiveSessionId, cwd: workspaceRoot })
+      .then((resp) => {
+        setAvailableSessions(resp.sessions);
+        // If current session is in the list, select it
+        const current = resp.sessions.find(
+          (s) => s.sessionId === sessionInfo?.sessionId,
+        );
+        if (current) {
+          setSelectedSessionId(current.sessionId);
+        } else if (resp.sessions.length > 0) {
+          setSelectedSessionId(resp.sessions[0].sessionId);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to list sessions:", err);
+      });
+  }, [isReady, effectiveSessionId, workspaceRoot, sessionInfo?.sessionId]);
+
+  // Close session or connection on unmount (tab deleted)
   useEffect(() => {
     return () => {
       if (effectiveSessionId) {
         acpStore.closeSession(effectiveSessionId);
+      }
+      // If we have an unbound connection (init but not yet bound), close it
+      const cid = connectionIdRef.current;
+      if (cid) {
+        acpStore.closeConnection(cid).catch(() => {});
       }
     };
   }, [effectiveSessionId]);
@@ -305,20 +350,78 @@ export default function ChatPane({
     }
   }, [effectiveSessionId]);
 
-  const handleConnect = useCallback(async () => {
+  const handleInit = useCallback(async () => {
     if (!workspaceRoot) return;
     const agent = availableAgents.find((a) => (a.id || a.name) === selectedAgentId);
     if (!agent) return;
     setIsConnectingLocal(true);
+    setError(null);
     try {
-      const sid = await acpStore.createSession(agent, workspaceRoot);
-      setLocalSessionId(sid);
+      const cid = await acpStore.initConnection(agent, workspaceRoot);
+      setConnectionId(cid);
+      setIsConnectionInitialized(true);
+      // List available sessions
+      setIsListingSessions(true);
+      const sessions = await acpStore.listConnectionSessions(cid, workspaceRoot);
+      setAvailableSessions(sessions);
+      setSelectedSessionId(""); // Default to "New Session"
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Init failed:", err);
+      setError(`Init failed: ${msg}`);
+      setIsConnectionInitialized(false);
+      setConnectionId(undefined);
+    } finally {
+      setIsConnectingLocal(false);
+      setIsListingSessions(false);
+    }
+  }, [availableAgents, selectedAgentId, workspaceRoot]);
+
+  const handleConnect = useCallback(async () => {
+    if (!workspaceRoot || !connectionId) return;
+    const agent = availableAgents.find((a) => (a.id || a.name) === selectedAgentId);
+    if (!agent) return;
+    setIsConnectingLocal(true);
+    setError(null);
+    try {
+      let sid: string;
+      if (!selectedSessionId || selectedSessionId === "") {
+        // New session
+        sid = await acpStore.bindNewSession(connectionId, workspaceRoot);
+      } else {
+        // Load existing session
+        sid = await acpStore.bindLoadSession(connectionId, selectedSessionId, workspaceRoot);
+      }
+      setLocalSessionId(sid);
+      setConnectionId(undefined);
+      setIsConnectionInitialized(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("Connect failed:", err);
+      setError(`Connect failed: ${msg}`);
     } finally {
       setIsConnectingLocal(false);
     }
-  }, [availableAgents, selectedAgentId, workspaceRoot]);
+  }, [availableAgents, selectedAgentId, workspaceRoot, connectionId, selectedSessionId]);
+
+  const handleLoadSession = useCallback(
+    async (targetSessionId: string) => {
+      if (!effectiveSessionId || !workspaceRoot) return;
+      if (targetSessionId === sessionInfo?.sessionId) return;
+      try {
+        await sessionApi.load({
+          sessionId: effectiveSessionId,
+          targetSessionId,
+          cwd: workspaceRoot,
+          mcpServers: [],
+        });
+        setSelectedSessionId(targetSessionId);
+      } catch (err) {
+        console.error("Failed to load session:", err);
+      }
+    },
+    [effectiveSessionId, workspaceRoot, sessionInfo?.sessionId],
+  );
 
   const handleResolvePermission = useCallback(
     (response: any) => {
@@ -338,9 +441,6 @@ export default function ChatPane({
       setPendingPermission(null);
     }
   }, [pendingPermission, sessionId]);
-
-  const isReady =
-    connectionStatus === "ready" || connectionStatus === "connected";
 
   const isPromptRunning = promptTurnState.status === "running";
 
@@ -444,12 +544,39 @@ export default function ChatPane({
         agentName={sessionInfo?.agentDisplayName || agentConfig.name || "agent"}
         sessionId={sessionInfo?.sessionId}
         hasSession={!!effectiveSessionId}
+        isConnectionInitialized={isConnectionInitialized}
+        isListingSessions={isListingSessions}
         onClose={onClose}
+        onInit={handleInit}
         onConnect={handleConnect}
         availableAgents={availableAgents}
         selectedAgentId={selectedAgentId}
         onSelectAgent={setSelectedAgentId}
+        availableSessions={availableSessions}
+        selectedSessionId={selectedSessionId}
+        onSelectSession={setSelectedSessionId}
+        onSwitchSession={handleLoadSession}
       />
+
+      {/* Error banner */}
+      {error && (
+        <div
+          className="px-3 py-1.5 border-b text-xs flex items-center gap-2 shrink-0"
+          style={{
+            backgroundColor: "var(--theme-destructive-10)",
+            borderColor: "var(--theme-destructive-20)",
+            color: "var(--theme-destructive)",
+          }}
+        >
+          <span>⚠️ {error}</span>
+          <button
+            onClick={() => setError(null)}
+            className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-destructive/30 hover:bg-destructive/10 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {workspaceRoot && connectionStatus === "disconnected" && !sessionId && (
         <ConnectionBar />
@@ -633,11 +760,18 @@ function Header({
   agentName,
   sessionId,
   hasSession,
+  isConnectionInitialized,
+  isListingSessions,
   onClose,
+  onInit,
   onConnect,
   availableAgents,
   selectedAgentId,
   onSelectAgent,
+  availableSessions,
+  selectedSessionId,
+  onSelectSession,
+  onSwitchSession,
 }: {
   statusLabel: string;
   isReady: boolean;
@@ -646,11 +780,18 @@ function Header({
   agentName: string;
   sessionId?: string;
   hasSession: boolean;
+  isConnectionInitialized: boolean;
+  isListingSessions: boolean;
   onClose: () => void;
+  onInit: () => void;
   onConnect: () => void;
   availableAgents: AgentConfig[];
   selectedAgentId: string;
   onSelectAgent: (id: string) => void;
+  availableSessions: SessionListEntry[];
+  selectedSessionId: string;
+  onSelectSession: (id: string) => void;
+  onSwitchSession: (id: string) => void;
 }) {
   const statusColor = isStreaming
     ? "var(--theme-warning)"
@@ -676,7 +817,7 @@ function Header({
         <span className="font-mono truncate">{sessionId || agentName}</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {!hasSession && availableAgents.length > 0 && (
+        {!hasSession && !isConnectionInitialized && availableAgents.length > 0 && (
           <div className="flex items-center gap-1.5">
             {availableAgents.length > 1 && (
               <select
@@ -698,14 +839,66 @@ function Header({
               </select>
             )}
             <button
-              onClick={onConnect}
+              onClick={onInit}
               disabled={isConnecting}
               className="text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer disabled:opacity-50"
               style={{ backgroundColor: "var(--theme-accent)" }}
             >
+              {isConnecting ? "Initializing…" : "Init"}
+            </button>
+          </div>
+        )}
+        {!hasSession && isConnectionInitialized && (
+          <div className="flex items-center gap-1.5">
+            <select
+              value={selectedSessionId}
+              onChange={(e) => onSelectSession(e.target.value)}
+              disabled={isConnecting || isListingSessions}
+              className="text-[11px] px-1.5 py-0.5 rounded border border-border cursor-pointer appearance-none pr-4 text-text-secondary bg-muted max-w-[200px]"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23999' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "right 4px center",
+              }}
+              title="Select a session or create new"
+            >
+              <option value="">New Session</option>
+              {isListingSessions && <option value="" disabled>Loading…</option>}
+              {availableSessions.map((s) => (
+                <option key={s.sessionId} value={s.sessionId}>
+                  {s.title || s.sessionId}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={onConnect}
+              disabled={isConnecting}
+              className="text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer disabled:opacity-50"
+              style={{ backgroundColor: "var(--theme-success)" }}
+            >
               {isConnecting ? "Connecting…" : "Connect"}
             </button>
           </div>
+        )}
+        {hasSession && availableSessions.length > 0 && (
+          <select
+            value={selectedSessionId}
+            onChange={(e) => onSwitchSession(e.target.value)}
+            disabled={!isReady || isConnecting}
+            className="text-[11px] px-1.5 py-0.5 rounded border border-border cursor-pointer appearance-none pr-4 text-text-secondary bg-muted max-w-[200px]"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23999' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "right 4px center",
+            }}
+            title="Switch to a past session"
+          >
+            {availableSessions.map((s) => (
+              <option key={s.sessionId} value={s.sessionId}>
+                {s.title || s.sessionId}
+              </option>
+            ))}
+          </select>
         )}
         <button
           onClick={onClose}

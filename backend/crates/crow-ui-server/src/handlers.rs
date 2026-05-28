@@ -5,6 +5,8 @@ use std::path::Path;
 use base64::Engine;
 use serde_json::{json, Value};
 
+use agent_client_protocol_schema as acp;
+
 use crate::protocol::*;
 use crate::state::AppState;
 use crow_ui_text::{EditOperation, Position, Range, TextModel};
@@ -674,6 +676,85 @@ pub async fn handle_set_session_config_option(
 
     Ok(SetSessionConfigOptionResponse {
         config_options: result,
+    })
+}
+
+pub async fn handle_list_sessions(
+    state: &AppState,
+    req: ListSessionsRequest,
+) -> Result<ListSessionsResponse, String> {
+    let session = state
+        .acp_sessions
+        .get_session(&req.session_id)
+        .await
+        .ok_or_else(|| format!("Session not found: {}", req.session_id))?;
+
+    let result = session
+        .list_sessions(&req.cwd)
+        .await
+        .map_err(|e| format!("Failed to list sessions: {e}"))?;
+
+    let sessions = result
+        .get("sessions")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| {
+                    Some(SessionListEntry {
+                        session_id: s.get("sessionId")?.as_str()?.to_string(),
+                        title: s.get("title")?.as_str().unwrap_or("").to_string(),
+                        created_at: s.get("createdAt")?.as_str().unwrap_or("").to_string(),
+                        updated_at: s.get("updatedAt")?.as_str().unwrap_or("").to_string(),
+                        message_count: s.get("messageCount")?.as_i64().unwrap_or(0) as i32,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(ListSessionsResponse { sessions })
+}
+
+pub async fn handle_load_session(
+    state: &AppState,
+    req: LoadSessionRequest,
+) -> Result<LoadSessionResponse, String> {
+    let mcp_servers: Vec<acp::McpServer> = req.mcp_servers.iter().map(|cfg| {
+        match &cfg.transport {
+            crate::protocol::McpTransport::Stdio { command, args, env } => {
+                acp::McpServer::Stdio(
+                    acp::McpServerStdio::new(&cfg.name, command)
+                        .args(args.clone())
+                        .env(env.iter().map(|e| acp::EnvVariable::new(&e.name, &e.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Http { url, headers } => {
+                acp::McpServer::Http(
+                    acp::McpServerHttp::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Sse { url, headers } => {
+                acp::McpServer::Sse(
+                    acp::McpServerSse::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+        }
+    }).collect();
+
+    let result = state
+        .acp_sessions
+        .switch_session(&req.session_id, &req.target_session_id, &req.cwd, mcp_servers)
+        .await
+        .map_err(|e| format!("Failed to load session: {e}"))?;
+
+    let config_options = result.config_options();
+
+    Ok(LoadSessionResponse {
+        success: true,
+        config_options,
+        error: None,
     })
 }
 

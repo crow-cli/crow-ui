@@ -105,6 +105,8 @@ pub struct AppState {
     pub acp_pending: DashMap<String, oneshot::Sender<Value>>,
     /// Broadcast channel for backend ACP session events → all connected frontends.
     pub acp_session_events_tx: broadcast::Sender<crate::acp_session::SessionEvent>,
+    /// Broadcast channel for panel creation commands → all connected frontends.
+    pub panel_events_tx: broadcast::Sender<String>,
     /// Config directory (e.g. ~/.crow or --config-dir override).
     pub config_dir: PathBuf,
 }
@@ -123,6 +125,7 @@ impl AppState {
         let settings_events_tx = broadcast::Sender::new(16);
         let acp_cmd_tx = broadcast::Sender::new(256);
         let acp_session_events_tx = broadcast::Sender::new(1024);
+        let panel_events_tx = broadcast::Sender::new(256);
         let _ = std::fs::create_dir_all(config_dir);
         let db_path = config_dir.join("state.db");
         let db = Database::open(&db_path).expect("failed to open state database");
@@ -150,6 +153,7 @@ impl AppState {
             acp_cmd_tx,
             acp_pending: DashMap::new(),
             acp_session_events_tx,
+            panel_events_tx,
             config_dir: config_dir.to_path_buf(),
         }
     }
@@ -159,6 +163,7 @@ impl AppState {
         let settings_events_tx = broadcast::Sender::new(16);
         let acp_cmd_tx = broadcast::Sender::new(256);
         let acp_session_events_tx = broadcast::Sender::new(1024);
+        let panel_events_tx = broadcast::Sender::new(256);
         let _ = std::fs::create_dir_all(config_dir);
         let db_path = config_dir.join("state.db");
         let db = Database::open(&db_path).expect("failed to open state database");
@@ -186,6 +191,7 @@ impl AppState {
             acp_cmd_tx,
             acp_pending: DashMap::new(),
             acp_session_events_tx,
+            panel_events_tx,
             config_dir: config_dir.to_path_buf(),
         }
     }

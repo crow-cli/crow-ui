@@ -216,7 +216,7 @@ impl TaskDecision {
 /// This takes control of prompting until the agent enters Waiting state
 /// or all tasks are complete.
 pub async fn run_task_loop(session: Arc<AcpSession>, app: Arc<Mutex<AppState>>) -> Result<()> {
-    let session_id = session.session_id.clone();
+    let session_id = session.session_id();
 
     loop {
         // Find the current task

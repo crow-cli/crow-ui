@@ -374,6 +374,56 @@ export default function App() {
     });
   }, [workspaceRoot]);
 
+  // Subscribe to backend panel creation events (backend-controlled panels via /api/acp/panels)
+  useEffect(() => {
+    return ws.onPanelEvent((params) => {
+      const panelType = params.panelType as string;
+      const title = (params.title as string) || "Panel";
+      const config = (params.config as Record<string, unknown>) || {};
+
+      if (panelType === "chat") {
+        const model = layoutModelRef.current;
+        if (!model) return;
+        const chatId = `chat-${Date.now()}`;
+
+        let targetNode = model.getNodeById("chat-tabset");
+        if (!targetNode) {
+          model.visitNodes((node) => {
+            if (node.getType() === "tabset") {
+              const children = node.getChildren();
+              if (children.some((c) => c.getType() === "tab" && (c as TabNode).getComponent() === "chat")) {
+                targetNode = node;
+                return false;
+              }
+            }
+            return true;
+          });
+        }
+
+        const tabJson = {
+          type: "tab" as const,
+          name: title,
+          component: "chat" as const,
+          config: config.sessionId ? { sessionId: config.sessionId } : {},
+          id: chatId,
+        };
+
+        if (targetNode) {
+          model.doAction(Actions.addTab(tabJson, targetNode.getId(), DockLocation.CENTER, -1, true));
+        } else {
+          const editorTabset = model.getNodeById("editor-tabset");
+          if (editorTabset) {
+            const centerRow = editorTabset.getParent();
+            if (centerRow && centerRow.getType() === "row") {
+              model.doAction(Actions.addNode(tabJson, centerRow.getId(), DockLocation.RIGHT, -1, true));
+            }
+          }
+        }
+      }
+      // Future: handle other panel types (terminal, web, etc.)
+    });
+  }, []);
+
   // Load settings after connection
   useEffect(() => {
     if (!connected) return;

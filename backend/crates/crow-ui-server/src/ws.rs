@@ -25,6 +25,7 @@ use crate::acp_session::SessionEvent;
 use crate::handlers;
 use crate::router::{WsError, WsNotification, WsRequest, WsResponse};
 use crate::state::AppState;
+use crow_ui_acp::AgentConfig;
 
 /// Shared state wrapped for Axum extraction.
 pub type App = Arc<Mutex<AppState>>;
@@ -39,6 +40,12 @@ pub async fn run_server(app: App, host: &str, port: u16) {
         .route("/ws", get(ws_handler))
         .route("/ws/acp", get(acp_ws_handler))
         .route("/api/acp/sessions", post(create_session_handler))
+        .route("/api/acp/connections/init", post(init_connection_handler))
+        .route("/api/acp/connections/:connection_id/list", post(list_connection_sessions_handler))
+        .route("/api/acp/connections/:connection_id/new", post(bind_new_session_handler))
+        .route("/api/acp/connections/:connection_id/load", post(bind_load_session_handler))
+        .route("/api/acp/connections/:connection_id/close", post(close_connection_handler))
+        .route("/api/acp/panels", post(create_panel_handler))
         .route("/api/acp/sessions/:session_id/prompt", post(prompt_session_handler))
         .route("/api/acp/sessions/:session_id/relay", post(relay_session_handler))
         .route("/api/acp/sessions/:session_id/cancel", post(cancel_session_handler))
@@ -116,6 +123,12 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
     let mut acp_session_rx = {
         let state = app.lock().await;
         state.acp_session_events_tx.subscribe()
+    };
+
+    // Subscribe to panel creation commands from backend
+    let mut panel_rx = {
+        let state = app.lock().await;
+        state.panel_events_tx.subscribe()
     };
 
     loop {
@@ -318,6 +331,21 @@ async fn handle_socket(mut socket: WebSocket, app: App) {
                                 tracing::warn!("Failed to push ACP disconnect: {e}");
                                 break;
                             }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+            // Panel creation command from backend
+            panel_event = panel_rx.recv() => {
+                match panel_event {
+                    Ok(json) => {
+                        if let Err(e) = socket.send(Message::Text(json)).await {
+                            tracing::warn!("Failed to push panel event: {e}");
+                            break;
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -705,6 +733,14 @@ async fn handle_message(text: &str, app: &App) -> Value {
             Ok(req) => handlers::handle_set_session_config_option(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
             Err(e) => Err(e.to_string()),
         },
+        "list_sessions" => match serde_json::from_value::<crate::protocol::ListSessionsRequest>(request.params) {
+            Ok(req) => handlers::handle_list_sessions(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+        "load_session" => match serde_json::from_value::<crate::protocol::LoadSessionRequest>(request.params) {
+            Ok(req) => handlers::handle_load_session(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
 
         // ACP methods
         "acp_relay" => match serde_json::from_value::<crate::protocol::AcpRelayRequest>(request.params) {
@@ -841,10 +877,10 @@ async fn create_session_handler(
     match state.acp_sessions.create_session(name, command, args, env, cwd, config_file, mcp_servers, forward_tx).await {
         Ok(session) => {
             (StatusCode::OK, Json(serde_json::json!({
-                "sessionId": session.session_id,
+                "sessionId": session.session_id(),
                 "agentId": session.agent_id,
-                "configOptions": session.config_options,
-                "modes": session.modes,
+                "configOptions": session.config_options(),
+                "modes": session.modes(),
             }))).into_response()
         }
         Err(e) => {
@@ -853,6 +889,255 @@ async fn create_session_handler(
             }))).into_response()
         }
     }
+}
+
+/// HTTP handler: POST /api/acp/connections/init
+/// Spawns agent + initialize handshake. Returns connection_id (not bound to any session yet).
+async fn init_connection_handler(
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("agent").to_string();
+    let command = body.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let args: Vec<String> = body.get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let env: Vec<String> = body.get("env")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
+    let config_file = body.get("configFile").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let mcp_server_configs: Vec<crate::protocol::McpServerConfig> = body.get("mcpServers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    let mut final_args = args;
+    if let Some(path) = config_file {
+        let expanded = if path.starts_with("~/") {
+            std::env::var("HOME")
+                .map(|home| format!("{}{}", home, &path[1..]))
+                .unwrap_or(path)
+        } else {
+            path
+        };
+        final_args.push("--config-file".to_string());
+        final_args.push(expanded);
+    }
+
+    let config = AgentConfig {
+        name,
+        command,
+        args: final_args,
+        env,
+    };
+
+    let state = app.lock().await;
+
+    match state.acp_sessions.init_connection(config, cwd).await {
+        Ok(connection_id) => {
+            (StatusCode::OK, Json(serde_json::json!({
+                "connectionId": connection_id,
+            }))).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Failed to init connection: {e}")
+            }))).into_response()
+        }
+    }
+}
+
+/// HTTP handler: POST /api/acp/connections/:connection_id/list
+/// Lists available sessions from an initialized (but unbound) connection.
+async fn list_connection_sessions_handler(
+    Path(connection_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
+
+    let state = app.lock().await;
+    let result = state.acp_sessions.list_sessions_via_connection(&connection_id, &cwd).await;
+
+    match result {
+        Ok(sessions_json) => {
+            let sessions = sessions_json
+                .get("sessions")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| {
+                            Some(crate::protocol::SessionListEntry {
+                                session_id: s.get("sessionId")?.as_str()?.to_string(),
+                                title: s.get("title")?.as_str().unwrap_or("").to_string(),
+                                created_at: s.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                updated_at: s.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                message_count: s.get("messageCount").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            (StatusCode::OK, Json(serde_json::json!({ "sessions": sessions }))).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Failed to list sessions: {e}")
+            }))).into_response()
+        }
+    }
+}
+
+/// HTTP handler: POST /api/acp/connections/:connection_id/new
+/// Binds an initialized connection to a new session.
+async fn bind_new_session_handler(
+    Path(connection_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
+    let mcp_server_configs: Vec<crate::protocol::McpServerConfig> = body.get("mcpServers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    let mcp_servers: Vec<acp::McpServer> = mcp_server_configs.iter().map(|cfg| {
+        match &cfg.transport {
+            crate::protocol::McpTransport::Stdio { command, args, env } => {
+                acp::McpServer::Stdio(
+                    acp::McpServerStdio::new(&cfg.name, command)
+                        .args(args.clone())
+                        .env(env.iter().map(|e| acp::EnvVariable::new(&e.name, &e.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Http { url, headers } => {
+                acp::McpServer::Http(
+                    acp::McpServerHttp::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Sse { url, headers } => {
+                acp::McpServer::Sse(
+                    acp::McpServerSse::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+        }
+    }).collect();
+
+    let state = app.lock().await;
+    let forward_tx = state.acp_session_events_tx.clone();
+    match state.acp_sessions.bind_new_session(&connection_id, mcp_servers, forward_tx).await {
+        Ok(session) => {
+            (StatusCode::OK, Json(serde_json::json!({
+                "sessionId": session.session_id(),
+                "success": true,
+                "configOptions": session.config_options(),
+            }))).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Failed to bind new session: {e}")
+            }))).into_response()
+        }
+    }
+}
+
+/// HTTP handler: POST /api/acp/connections/:connection_id/load
+/// Binds an initialized connection to an existing session.
+async fn bind_load_session_handler(
+    Path(connection_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let target_session_id = body.get("targetSessionId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
+    let mcp_server_configs: Vec<crate::protocol::McpServerConfig> = body.get("mcpServers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    let mcp_servers: Vec<acp::McpServer> = mcp_server_configs.iter().map(|cfg| {
+        match &cfg.transport {
+            crate::protocol::McpTransport::Stdio { command, args, env } => {
+                acp::McpServer::Stdio(
+                    acp::McpServerStdio::new(&cfg.name, command)
+                        .args(args.clone())
+                        .env(env.iter().map(|e| acp::EnvVariable::new(&e.name, &e.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Http { url, headers } => {
+                acp::McpServer::Http(
+                    acp::McpServerHttp::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+            crate::protocol::McpTransport::Sse { url, headers } => {
+                acp::McpServer::Sse(
+                    acp::McpServerSse::new(&cfg.name, url)
+                        .headers(headers.iter().map(|h| acp::HttpHeader::new(&h.name, &h.value)).collect())
+                )
+            }
+        }
+    }).collect();
+
+    let state = app.lock().await;
+    let forward_tx = state.acp_session_events_tx.clone();
+    match state.acp_sessions.bind_load_session(&connection_id, &target_session_id, &cwd, mcp_servers, forward_tx).await {
+        Ok(session) => {
+            (StatusCode::OK, Json(serde_json::json!({
+                "sessionId": session.session_id(),
+                "success": true,
+                "configOptions": session.config_options(),
+            }))).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Failed to bind load session: {e}")
+            }))).into_response()
+        }
+    }
+}
+
+/// HTTP handler: POST /api/acp/connections/:connection_id/close
+/// Closes an unbound connection without creating a session.
+async fn close_connection_handler(
+    Path(connection_id): Path<String>,
+    State(app): State<App>,
+) -> impl IntoResponse {
+    let state = app.lock().await;
+    state.acp_sessions.close_connection(&connection_id).await;
+    (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
+}
+
+/// HTTP handler: POST /api/acp/panels
+/// Broadcasts a panel creation command to all connected frontends.
+async fn create_panel_handler(
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let panel_type = body.get("panelType").and_then(|v| v.as_str()).unwrap_or("chat").to_string();
+    let title = body.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let config = body.get("config").cloned();
+
+    let notification = WsNotification {
+        method: "acp-new-panel".into(),
+        params: serde_json::json!({
+            "panelType": panel_type,
+            "title": title,
+            "config": config,
+        }),
+    };
+
+    let state = app.lock().await;
+    if let Ok(json) = serde_json::to_string(&notification) {
+        let _ = state.panel_events_tx.send(json);
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
 }
 
 /// HTTP handler: POST /api/acp/sessions/:session_id/prompt

@@ -77,12 +77,16 @@ pub enum PromptBehavior {
 
 /// A running ACP session owned by the backend.
 pub struct AcpSession {
-    pub session_id: String,
+    /// Unique connection ID (distinct from agent_id and session_id).
+    pub connection_id: String,
+    /// ACP session ID — empty until new_session or load_session succeeds.
+    session_id: parking_lot::Mutex<String>,
+    /// Agent process ID (from AgentManager).
     pub agent_id: String,
     pub agent_name: String,
     pub cwd: String,
-    pub config_options: Option<Value>,
-    pub modes: Option<Value>,
+    config_options: parking_lot::Mutex<Option<Value>>,
+    modes: parking_lot::Mutex<Option<Value>>,
 
     stdin_tx: mpsc::Sender<String>,
     pending_requests: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>,
@@ -98,11 +102,17 @@ pub struct AcpSession {
     terminals: Arc<crow_ui_acp::terminals::AcpTerminalManager>,
     /// Active terminal IDs created by this session during current prompt turn.
     pub active_terminals: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// Shared cell so the I/O task knows the current session ID.
+    session_id_cell: Arc<Mutex<String>>,
 }
 
 /// Manager for multiple backend-owned ACP sessions.
 pub struct AcpSessionManager {
+    /// Active sessions keyed by session_id.
     sessions: Mutex<HashMap<String, Arc<AcpSession>>>,
+    /// Initialized but unbound connections keyed by connection_id.
+    /// These have completed initialize but not yet session/new or session/load.
+    connections: Mutex<HashMap<String, Arc<AcpSession>>>,
     agent_manager: Arc<AgentManager>,
 }
 
@@ -141,12 +151,12 @@ struct JsonRpcError {
 // ─── AcpSession implementation ──────────────────────────────────────────────
 
 impl AcpSession {
-    /// Spawn an agent, perform initialize + newSession handshake.
-    pub async fn create(
+    /// Spawn an agent process and start the I/O loop.
+    /// Returns an Arc with empty session_id — call initialize() then new_session() or load_session().
+    pub async fn spawn(
         agent_manager: &AgentManager,
         config: AgentConfig,
         cwd: String,
-        mcp_servers: Vec<acp::McpServer>,
     ) -> Result<Arc<Self>> {
         let agent_id = agent_manager
             .spawn(&config, &cwd)
@@ -180,6 +190,8 @@ impl AcpSession {
         let active_terminals = Arc::new(Mutex::new(std::collections::HashSet::new()));
         let active_terminals_for_io = active_terminals.clone();
 
+        let connection_id = uuid::Uuid::new_v4().to_string();
+
         let io_task = tokio::spawn(async move {
             loop {
                 match stdout_rx.recv().await {
@@ -212,13 +224,14 @@ impl AcpSession {
         let queued_items = Arc::new(Mutex::new(Vec::new()));
         let terminals = agent_manager.terminals.clone();
 
-        let mut session = Self {
-            session_id: String::new(),
+        let session = Self {
+            connection_id: connection_id.clone(),
+            session_id: parking_lot::Mutex::new(String::new()),
             agent_id: agent_id.clone(),
             agent_name: config.name.clone(),
             cwd: cwd.clone(),
-            config_options: None,
-            modes: None,
+            config_options: parking_lot::Mutex::new(None),
+            modes: parking_lot::Mutex::new(None),
             stdin_tx,
             pending_requests,
             events_tx,
@@ -228,11 +241,34 @@ impl AcpSession {
             queued_items,
             terminals,
             active_terminals,
+            session_id_cell,
         };
 
-        // ── ACP handshake ──
+        info!(
+            "ACP connection spawned: {} (agent: {}, cwd: {})",
+            connection_id, agent_id, cwd
+        );
 
-        // 1. Initialize
+        Ok(Arc::new(session))
+    }
+
+    /// Get the current session ID.
+    pub fn session_id(&self) -> String {
+        self.session_id.lock().clone()
+    }
+
+    /// Get config options.
+    pub fn config_options(&self) -> Option<Value> {
+        self.config_options.lock().clone()
+    }
+
+    /// Get modes.
+    pub fn modes(&self) -> Option<Value> {
+        self.modes.lock().clone()
+    }
+
+    /// Send initialize request and wait for response.
+    pub async fn initialize(&self) -> Result<acp::InitializeResponse> {
         let init_req = acp::InitializeRequest::new(acp::ProtocolVersion::V1)
             .client_capabilities(
                 acp::ClientCapabilities::new()
@@ -241,29 +277,67 @@ impl AcpSession {
             )
             .client_info(acp::Implementation::new("crow-ui", env!("CARGO_PKG_VERSION")));
 
-        let _init_resp: acp::InitializeResponse = session
-            .request("initialize", init_req)
-            .await
-            .context("initialize failed")?;
+        self.request("initialize", init_req).await.context("initialize failed")
+    }
 
-        // 2. New session
-        let new_session_req = acp::NewSessionRequest::new(&cwd).mcp_servers(mcp_servers);
-        let new_session_resp: acp::NewSessionResponse = session
+    /// Send session/new and bind this connection to a new session.
+    /// Updates self.session_id on success.
+    pub async fn new_session(
+        &self,
+        mcp_servers: Vec<acp::McpServer>,
+    ) -> Result<acp::NewSessionResponse> {
+        let new_session_req = acp::NewSessionRequest::new(&self.cwd).mcp_servers(mcp_servers);
+        let resp: acp::NewSessionResponse = self
             .request("session/new", new_session_req)
             .await
             .context("newSession failed")?;
 
-        session.session_id = new_session_resp.session_id.0.to_string();
-        session.config_options = serde_json::to_value(&new_session_resp.config_options).ok();
-        session.modes = serde_json::to_value(&new_session_resp.modes).ok();
-        *session_id_cell.lock().await = session.session_id.clone();
+        let sid = resp.session_id.0.to_string();
+        *self.session_id.lock() = sid.clone();
+        *self.session_id_cell.lock().await = sid.clone();
+        *self.config_options.lock() = serde_json::to_value(&resp.config_options).ok();
+        *self.modes.lock() = serde_json::to_value(&resp.modes).ok();
 
         info!(
-            "ACP session created: {} (agent: {}, cwd: {})",
-            session.session_id, session.agent_id, cwd
+            "ACP session created: {} (connection: {}, agent: {}, cwd: {})",
+            sid, self.connection_id, self.agent_id, self.cwd
         );
 
-        Ok(Arc::new(session))
+        Ok(resp)
+    }
+
+    /// Send session/load and bind this connection to an existing session.
+    /// Updates self.session_id on success.
+    pub async fn load_session(
+        &self,
+        target_session_id: &str,
+        cwd: &str,
+        mcp_servers: Vec<acp::McpServer>,
+    ) -> Result<Value> {
+        #[derive(Debug, Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Params {
+            cwd: String,
+            session_id: String,
+            mcp_servers: Vec<acp::McpServer>,
+        }
+        let params = Params {
+            cwd: cwd.to_string(),
+            session_id: target_session_id.to_string(),
+            mcp_servers,
+        };
+        let result = self.request::<_, Value>("session/load", params).await?;
+
+        let sid = target_session_id.to_string();
+        *self.session_id.lock() = sid.clone();
+        *self.session_id_cell.lock().await = sid.clone();
+
+        info!(
+            "ACP session loaded: {} (connection: {}, agent: {})",
+            sid, self.connection_id, self.agent_id
+        );
+
+        Ok(result)
     }
 
     /// Send a JSON-RPC request and wait for the response (with 30s timeout).
@@ -337,7 +411,8 @@ impl AcpSession {
     /// Broadcast a synthetic session/update so the frontend receives prompt lifecycle events
     /// on the same channel as regular agent updates.
     fn broadcast_prompt_state(&self, state: PromptTurnState) {
-        eprintln!("[BROADCAST PROMPT STATE] session={} state={:?}", self.session_id, state);
+        let sid = self.session_id();
+        eprintln!("[BROADCAST PROMPT STATE] session={} state={:?}", sid, state);
         let session_update = match &state {
             PromptTurnState::Idle => serde_json::json!({ "sessionUpdate": "prompt_state", "status": "idle" }),
             PromptTurnState::Running => serde_json::json!({ "sessionUpdate": "prompt_state", "status": "running" }),
@@ -346,7 +421,7 @@ impl AcpSession {
             PromptTurnState::Error { message } => serde_json::json!({ "sessionUpdate": "prompt_complete", "stopReason": "error", "error": message }),
         };
         let _ = self.events_tx.send(SessionEvent::Update {
-            session_id: self.session_id.clone(),
+            session_id: sid,
             update: session_update,
         });
     }
@@ -382,11 +457,11 @@ impl AcpSession {
             ids
         };
         for term_id in terminals_to_kill {
-            info!("Killing terminal {} for cancelled session {}", term_id, self.session_id);
+            info!("Killing terminal {} for cancelled session {}", term_id, self.session_id());
             self.terminals.kill_terminal(&term_id).await;
         }
 
-        let notif = acp::CancelNotification::new(acp::SessionId::new(self.session_id.clone()));
+        let notif = acp::CancelNotification::new(acp::SessionId::new(self.session_id()));
         self.notify("session/cancel", notif).await
     }
 
@@ -401,7 +476,7 @@ impl AcpSession {
             value: String,
         }
         let params = Params {
-            session_id: self.session_id.clone(),
+            session_id: self.session_id(),
             config_id: config_id.to_string(),
             value: value.to_string(),
         };
@@ -410,6 +485,19 @@ impl AcpSession {
             .ok_or_else(|| anyhow::anyhow!("agent response missing configOptions"))?
             .clone();
         Ok(config_options)
+    }
+
+    /// Ask the agent to list sessions for a given cwd.
+    pub async fn list_sessions(&self, cwd: &str) -> Result<Value> {
+        #[derive(Debug, Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Params {
+            cwd: String,
+        }
+        let params = Params {
+            cwd: cwd.to_string(),
+        };
+        self.request::<_, Value>("session/list", params).await
     }
 
     /// Send a prompt. Returns Ok when complete, Err on failure.
@@ -432,7 +520,7 @@ impl AcpSession {
             if let acp::ContentBlock::Text(t) = b { Some(t.text.clone()) } else { None }
         }).collect::<Vec<_>>().join("");
         let _ = self.events_tx.send(SessionEvent::Update {
-            session_id: self.session_id.clone(),
+            session_id: self.session_id(),
             update: serde_json::json!({
                 "sessionUpdate": "user_message_chunk",
                 "content": { "text": user_text },
@@ -446,7 +534,7 @@ impl AcpSession {
         self.broadcast_prompt_state(PromptTurnState::Running);
 
         let req = acp::PromptRequest::new(
-            acp::SessionId::new(self.session_id.clone()),
+            acp::SessionId::new(self.session_id()),
             blocks,
         );
         let result = self.request_no_timeout::<_, acp::PromptResponse>("session/prompt", req).await;
@@ -513,7 +601,7 @@ impl AcpSession {
                     if let acp::ContentBlock::Text(t) = b { Some(t.text.clone()) } else { None }
                 }).collect::<Vec<_>>().join("");
                 let item = QueuedItem {
-                    id: format!("queue-{}-{}", self.session_id, self.next_id.fetch_add(1, Ordering::SeqCst)),
+                    id: format!("queue-{}-{}", self.session_id(), self.next_id.fetch_add(1, Ordering::SeqCst)),
                     text,
                     blocks,
                 };
@@ -633,7 +721,7 @@ impl AcpSession {
     }
 
     fn broadcast_queue(&self) {
-        let session_id = self.session_id.clone();
+        let session_id = self.session_id();
         let items = {
             // We can't hold the lock across await, but this is sync so we just clone
             if let Ok(q) = self.queued_items.try_lock() {
@@ -860,10 +948,135 @@ impl AcpSessionManager {
     pub fn new(agent_manager: Arc<AgentManager>) -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            connections: Mutex::new(HashMap::new()),
             agent_manager,
         }
     }
 
+    /// Spawn + initialize a new connection.
+    /// Returns the connection_id.
+    pub async fn init_connection(
+        &self,
+        config: AgentConfig,
+        cwd: String,
+    ) -> Result<String> {
+        let session = AcpSession::spawn(&self.agent_manager, config, cwd).await?;
+        session.initialize().await?;
+        let connection_id = session.connection_id.clone();
+        self.connections.lock().await.insert(connection_id.clone(), session);
+        Ok(connection_id)
+    }
+
+    /// Bind an unbound connection to a new session (session/new).
+    /// Moves the connection from `connections` to `sessions`.
+    /// Returns the session Arc.
+    pub async fn bind_new_session(
+        &self,
+        connection_id: &str,
+        mcp_servers: Vec<acp::McpServer>,
+        forward_tx: broadcast::Sender<SessionEvent>,
+    ) -> Result<Arc<AcpSession>> {
+        let session = {
+            let mut conns = self.connections.lock().await;
+            conns.remove(connection_id)
+                .ok_or_else(|| anyhow::anyhow!("Connection not found: {}", connection_id))?
+        };
+
+        session.new_session(mcp_servers).await?;
+        let session_id = session.session_id();
+
+        // Forward session events to the global channel
+        let mut rx = session.subscribe();
+        let sid = session_id.clone();
+        tokio::spawn(async move {
+            while let Ok(event) = rx.recv().await {
+                let _ = forward_tx.send(event);
+            }
+            let _ = forward_tx.send(SessionEvent::Disconnected { session_id: sid.clone() });
+        });
+
+        self.sessions.lock().await.insert(session_id, session.clone());
+        Ok(session)
+    }
+
+    /// Bind an unbound connection to an existing session (session/load).
+    /// Moves the connection from `connections` to `sessions`.
+    /// Returns the session Arc.
+    pub async fn bind_load_session(
+        &self,
+        connection_id: &str,
+        target_session_id: &str,
+        cwd: &str,
+        mcp_servers: Vec<acp::McpServer>,
+        forward_tx: broadcast::Sender<SessionEvent>,
+    ) -> Result<Arc<AcpSession>> {
+        let session = {
+            let mut conns = self.connections.lock().await;
+            conns.remove(connection_id)
+                .ok_or_else(|| anyhow::anyhow!("Connection not found: {}", connection_id))?
+        };
+
+        session.load_session(target_session_id, cwd, mcp_servers).await?;
+        let session_id = session.session_id();
+
+        // Forward session events to the global channel
+        let mut rx = session.subscribe();
+        let sid = session_id.clone();
+        tokio::spawn(async move {
+            while let Ok(event) = rx.recv().await {
+                let _ = forward_tx.send(event);
+            }
+            let _ = forward_tx.send(SessionEvent::Disconnected { session_id: sid.clone() });
+        });
+
+        self.sessions.lock().await.insert(session_id, session.clone());
+        Ok(session)
+    }
+
+    /// Load a different session on an already-bound session.
+    /// Updates the session_id and the sessions map key.
+    pub async fn switch_session(
+        &self,
+        current_session_id: &str,
+        target_session_id: &str,
+        cwd: &str,
+        mcp_servers: Vec<acp::McpServer>,
+    ) -> Result<Arc<AcpSession>> {
+        let session = {
+            let mut sessions = self.sessions.lock().await;
+            sessions.remove(current_session_id)
+                .ok_or_else(|| anyhow::anyhow!("Session not found: {}", current_session_id))?
+        };
+
+        session.load_session(target_session_id, cwd, mcp_servers).await?;
+        let new_session_id = session.session_id();
+
+        self.sessions.lock().await.insert(new_session_id, session.clone());
+        Ok(session)
+    }
+
+    /// List sessions via an unbound or bound connection.
+    pub async fn list_sessions_via_connection(
+        &self,
+        connection_id: &str,
+        cwd: &str,
+    ) -> Result<Value> {
+        // Try connections first, then sessions
+        let session = {
+            let conns = self.connections.lock().await;
+            if let Some(s) = conns.get(connection_id) {
+                s.clone()
+            } else {
+                let sessions = self.sessions.lock().await;
+                sessions.get(connection_id)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("Connection or session not found: {}", connection_id))?
+            }
+        };
+        session.list_sessions(cwd).await
+    }
+
+    /// Backward compat: spawn + initialize + new_session in one shot.
     pub async fn create_session(
         &self,
         name: String,
@@ -893,20 +1106,26 @@ impl AcpSessionManager {
             args: final_args,
             env,
         };
-        let session = AcpSession::create(&self.agent_manager, config, cwd, mcp_servers).await?;
 
-        // Forward session events to the global channel
+        // Spawn + initialize
+        let session = AcpSession::spawn(&self.agent_manager, config, cwd).await?;
+        session.initialize().await?;
+
+        // New session
+        session.new_session(mcp_servers).await?;
+        let session_id = session.session_id();
+
+        // Forward session events
         let mut rx = session.subscribe();
-        let session_id = session.session_id.clone();
+        let sid = session_id.clone();
         tokio::spawn(async move {
             while let Ok(event) = rx.recv().await {
                 let _ = forward_tx.send(event);
             }
-            let _ = forward_tx.send(SessionEvent::Disconnected { session_id: session_id.clone() });
+            let _ = forward_tx.send(SessionEvent::Disconnected { session_id: sid.clone() });
         });
 
-        let mut map = self.sessions.lock().await;
-        map.insert(session.session_id.clone(), session.clone());
+        self.sessions.lock().await.insert(session_id, session.clone());
         Ok(session)
     }
 
@@ -914,15 +1133,31 @@ impl AcpSessionManager {
         self.sessions.lock().await.get(session_id).cloned()
     }
 
+    pub async fn get_connection(&self, connection_id: &str) -> Option<Arc<AcpSession>> {
+        self.connections.lock().await.get(connection_id).cloned()
+    }
+
     pub async fn close_session(&self, session_id: &str) {
-        let mut map = self.sessions.lock().await;
-        if let Some(session) = map.remove(session_id) {
+        let mut sessions = self.sessions.lock().await;
+        if let Some(session) = sessions.remove(session_id) {
             info!("Closing ACP session {}", session_id);
             let _ = self.agent_manager.kill(&session.agent_id).await;
         }
     }
 
-    pub async fn list_sessions(&self) -> Vec<String> {
+    pub async fn close_connection(&self, connection_id: &str) {
+        let mut conns = self.connections.lock().await;
+        if let Some(session) = conns.remove(connection_id) {
+            info!("Closing ACP connection {}", connection_id);
+            let _ = self.agent_manager.kill(&session.agent_id).await;
+        }
+    }
+
+    pub async fn list_active_sessions(&self) -> Vec<String> {
         self.sessions.lock().await.keys().cloned().collect()
+    }
+
+    pub async fn list_connections(&self) -> Vec<String> {
+        self.connections.lock().await.keys().cloned().collect()
     }
 }
