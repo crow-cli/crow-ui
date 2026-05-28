@@ -43,6 +43,9 @@ pub async fn run_server(app: App, host: &str, port: u16) {
         .route("/api/acp/sessions/:session_id/relay", post(relay_session_handler))
         .route("/api/acp/sessions/:session_id/cancel", post(cancel_session_handler))
         .route("/api/acp/sessions/:session_id/queue", get(get_queue_handler).post(queue_action_handler))
+        .route("/api/acp/sessions/:session_id/tasks", get(get_tasks_handler).post(create_tasks_handler))
+        .route("/api/acp/sessions/:session_id/tasks/update", post(update_tasks_handler))
+        .route("/api/acp/sessions/:session_id/tasks/delete", post(delete_tasks_handler))
         .with_state(app)
         .fallback(get(serve_embedded));
 
@@ -1037,6 +1040,176 @@ async fn queue_action_handler(
     }
 }
 
+/// HTTP handler: GET /api/acp/sessions/:session_id/tasks
+/// Returns the session's current (non-complete) task list.
+async fn get_tasks_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+) -> impl IntoResponse {
+    let state = app.lock().await;
+    let db = state.db.lock();
+    match crate::task::get_tasks(&db, &session_id) {
+        Ok(tasks) => (StatusCode::OK, Json(serde_json::json!({ "tasks": tasks }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": format!("Failed to get tasks: {e}")
+        }))).into_response(),
+    }
+}
+
+/// HTTP handler: POST /api/acp/sessions/:session_id/tasks
+/// Creates tasks and immediately enters the task orchestration loop.
+async fn create_tasks_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let items: Vec<crate::task::TodoItem> = match body.get("todo_list") {
+        Some(arr) => match serde_json::from_value(arr.clone()) {
+            Ok(v) => v,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    "error": format!("Invalid todo_list: {e}")
+                }))).into_response();
+            }
+        },
+        None => vec![],
+    };
+
+    if items.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "todo_list is required and must not be empty"
+        }))).into_response();
+    }
+
+    let state = app.lock().await;
+    let session = match state.acp_sessions.get_session(&session_id).await {
+        Some(s) => s,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": format!("Session not found: {session_id}")
+            }))).into_response();
+        }
+    };
+
+    let db = state.db.lock();
+
+    // Clear any existing tasks for this session (fresh start)
+    if let Err(e) = crate::task::clear_tasks(&db, &session_id) {
+        eprintln!("[tasks] failed to clear existing tasks for {session_id}: {e}");
+    }
+
+    // Create tasks in DB
+    match crate::task::create_tasks(&db, &session_id, &items) {
+        Ok(created) => {
+            drop(db);
+            drop(state);
+
+            // Spawn the orchestration loop
+            let app_clone = app.clone();
+            tokio::spawn(async move {
+                if let Err(e) = crate::task::run_task_loop(session, app_clone).await {
+                    eprintln!("[task] loop failed for {session_id}: {e}");
+                }
+            });
+
+            (StatusCode::ACCEPTED, Json(serde_json::json!({
+                "status": "tasks_created",
+                "tasks": created
+            }))).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": format!("Failed to create tasks: {e}")
+            }))).into_response()
+        }
+    }
+}
+
+/// HTTP handler: POST /api/acp/sessions/:session_id/tasks/update
+/// Batch update tasks by title.
+async fn update_tasks_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let updates: Vec<crate::task::TodoUpdate> = match body.get("todo_updates") {
+        Some(arr) => match serde_json::from_value(arr.clone()) {
+            Ok(v) => v,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    "error": format!("Invalid todo_updates: {e}")
+                }))).into_response();
+            }
+        },
+        None => vec![],
+    };
+
+    if updates.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "todo_updates is required and must not be empty"
+        }))).into_response();
+    }
+
+    let state = app.lock().await;
+    let db = state.db.lock();
+    match crate::task::update_tasks(&db, &session_id, &updates) {
+        Ok(()) => {
+            // Return updated task list
+            match crate::task::get_tasks(&db, &session_id) {
+                Ok(tasks) => (StatusCode::OK, Json(serde_json::json!({ "tasks": tasks }))).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                    "error": format!("Failed to get tasks after update: {e}")
+                }))).into_response(),
+            }
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": format!("Failed to update tasks: {e}")
+        }))).into_response(),
+    }
+}
+
+/// HTTP handler: POST /api/acp/sessions/:session_id/tasks/delete
+/// Batch delete tasks by title.
+async fn delete_tasks_handler(
+    Path(session_id): Path<String>,
+    State(app): State<App>,
+    axum::Json(body): axum::Json<Value>,
+) -> impl IntoResponse {
+    let titles: Vec<String> = match body.get("titles") {
+        Some(arr) => match serde_json::from_value(arr.clone()) {
+            Ok(v) => v,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    "error": format!("Invalid titles: {e}")
+                }))).into_response();
+            }
+        },
+        None => vec![],
+    };
+
+    if titles.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "titles is required and must not be empty"
+        }))).into_response();
+    }
+
+    let state = app.lock().await;
+    let db = state.db.lock();
+    match crate::task::delete_tasks(&db, &session_id, &titles) {
+        Ok(()) => {
+            match crate::task::get_tasks(&db, &session_id) {
+                Ok(tasks) => (StatusCode::OK, Json(serde_json::json!({ "tasks": tasks }))).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                    "error": format!("Failed to get tasks after delete: {e}")
+                }))).into_response(),
+            }
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": format!("Failed to delete tasks: {e}")
+        }))).into_response(),
+    }
+}
+
 /// Hardcoded summary prompt. Instructs the agent to generate a Markdown summary
 /// without calling any tools.
 const RELAY_SUMMARY_PROMPT: &str = r#"Please summarize what you just accomplished in this session.
@@ -1092,6 +1265,14 @@ async fn relay_session_handler(
     };
 
     let caller_session = state.acp_sessions.get_session(&from_session_id).await;
+
+    // Track relay state: caller is now waiting for the worker
+    if let Err(e) = crate::relay_state::set_state(&state.db.lock(), &from_session_id, "waiting") {
+        eprintln!("[relay] failed to set waiting state for {from_session_id}: {e}");
+    }
+
+    // Clone app so the spawned task can update state when callback arrives
+    let app_clone = app.clone();
     drop(state);
 
     tokio::spawn(async move {
@@ -1099,6 +1280,15 @@ async fn relay_session_handler(
         if let Err(e) = target_session.prompt(blocks).await {
             eprintln!("[relay] target prompt failed for {session_id}: {e}");
             return;
+        }
+
+        // Worker finished — caller is now in replying state
+        {
+            let state = app_clone.lock().await;
+            let db = state.db.lock();
+            if let Err(e) = crate::relay_state::set_state(&db, &from_session_id, "replying") {
+                eprintln!("[relay] failed to set replying state for {from_session_id}: {e}");
+            }
         }
 
         // 2. Target turn ended. Subscribe to events BEFORE sending summary prompt.

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 /// Current schema version. Bump when adding migrations.
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 /// Wraps a `SQLite` connection and ensures schema migrations run on open.
 pub struct Database {
@@ -105,6 +105,12 @@ impl Database {
         }
         if current < 5 {
             self.migration_v5()?;
+        }
+        if current < 6 {
+            self.migration_v6()?;
+        }
+        if current < 7 {
+            self.migration_v7()?;
         }
 
         self.conn
@@ -345,6 +351,42 @@ impl Database {
                 ",
             )
             .context("migration v5")?;
+        Ok(())
+    }
+
+    /// V6: relay state tracking for cross-agent orchestration.
+    fn migration_v6(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS relay_state (
+                    session_id  TEXT PRIMARY KEY,
+                    state       TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                ",
+            )
+            .context("migration v6")?;
+        Ok(())
+    }
+
+    /// V7: session tasks for task queue orchestration.
+    fn migration_v7(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS session_tasks (
+                    session_id  TEXT NOT NULL,
+                    title       TEXT NOT NULL,
+                    task        TEXT NOT NULL,
+                    status      TEXT NOT NULL DEFAULT 'not_started',
+                    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (session_id, title)
+                );
+                ",
+            )
+            .context("migration v7")?;
         Ok(())
     }
 }

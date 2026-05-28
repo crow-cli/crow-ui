@@ -636,8 +636,7 @@ export default function MessageEditor({
             } else if (
               entry.isDir &&
               !entry.name.startsWith(".") &&
-              !SKIP_DIRS.has(entry.name) &&
-              depth < 4
+              !SKIP_DIRS.has(entry.name)
             ) {
               queue.push({ path: entry.path, depth: depth + 1 });
             }
