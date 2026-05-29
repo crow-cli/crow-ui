@@ -4,36 +4,36 @@ date: "2026-05-25"
 ---
 
 # TO DO
-All of the above are some of the existing TO DO items inherited from this weekend.
 
+## Typst / Documentation
+- [ ] Command palette entries for "New Chapter" and "New Journal Entry"
+- [ ] Agent as Typst tutor — guides user through markup, creates files, opens preview
+- [ ] Compile all books in .crow/docs to a single unified site
+- [ ] llms.txt in system prompt for Typst reference
 
-## CROW-CLI RELATED
-- create /summary slash command for getting compaction-like summary without creating new agent in crow-cli
-- some kind of spec-kit like flow but now with agent orchestration through acp mesh relay
-- crow-cli install (desktop|web)
+## crow-ui Polish
+- [ ] Command palette should drop down from top (not modal center)
+- [ ] Clean up custom UIs: MCP config, ACP spawning, agent profile creation/editing
+- [ ] Fix underscore typing in Monaco file search
+- [ ] Save defaults/cookies for Wikipedia (and other web tools)
 
-## SEARCH
-- and I can't type underscores into the file search in monaco
+## Agent / Orchestration
+- [ ] /summary slash command — compaction-like summary without creating new agent
+- [ ] spec-kit flow with agent orchestration through ACP mesh relay
+- [ ] Plane-like task board UI (backend orchestration + CRUD exists — needs frontend kanban board)
+  - sequential task queue: orchestrator sees all tasks, acts on task N only
+  - task N+1 stays "on deck" until orchestrator marks N as done
+  - orchestrator self-prompts to advance queue
+  - /cancel-like mechanism to fire next turn immediately when done
+  - orchestrator delegates to worker agents, reviews, advances
+- [ ] Cancellation testing — needs to **always** work. _ALWAYS_
 
-# Paper TO DOs
-I sat down and wrote out some of the things I wanted to accomplish in the coming week and I want to put them in here without trying to categorize right off the bat.
+## Integration
+- [ ] auth with AT Proto (for tangled.sh git integration)
+- [ ] tangled.sh integration — self-hosted knots and spindles
+- [ ] crow-cli install (desktop|web)
 
-- search? sort of skeptical about this but still tended to use in zed as long ago as like last week. 
-- cancellation testing out the wazoo. this needs to **always** work. _ALWAYS_
-- session/load
-- backend session creation
-- auth with AT Proto
-- save defaults/cookies for wikipedia
-
-## UI / DESIGN
-- use Reka font everywhere for a more polished/professional look (clean up custom UIs: MCP config, ACP spawning, agent profile creation/editing)
-
-## AGENT ORCHESTRATION / PROJECT MANAGEMENT
-- build simplified Plane-like task board for agent/human interop using existing queue system
-  - sequential task queue: orchestrator agent sees all tasks but only acts on task N
-  - task N+1 stays in "on deck" until orchestrator marks N as done
-  - orchestrator self-prompts by calling tool to advance queue (mark N complete → advance to N+1)
-  - use /cancel-like mechanism to immediately fire next turn when ticket moves to done
-    (no waiting for end_turn to empty queue — if done, move to next item)
-  - orchestrator becomes the "user" for worker agents — delegates, reviews, then advances
-  - inspiration: ./plan (Plane project)
+## Whiteboard / Knowledge
+- [ ] Whiteboard app for agent/human interaction (spatial canvas, not chat)
+- [ ] Wiki/knowledge base for agents to edit/use AND for humans
+- [ ] Journaling system embedded with the above

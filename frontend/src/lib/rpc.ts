@@ -18,6 +18,8 @@ import type {
   DocumentGetInfoResponse,
   DocumentSaveRequest,
   DocumentSaveResponse,
+  TypstCompileRequest,
+  TypstCompileResponse,
   GetSettingRequest,
   GetSettingResponse,
   UpdateSettingRequest,
@@ -158,6 +160,9 @@ export const documentApi = {
 
   save: (req: DocumentSaveRequest): Promise<DocumentSaveResponse> =>
     invoke("document_save", req),
+
+  typstCompile: (req: TypstCompileRequest): Promise<TypstCompileResponse> =>
+    invoke("typst_compile", req),
 };
 
 // ─── Settings API ──────────────────────────────────────────────────────────

@@ -796,6 +796,12 @@ async fn handle_message(text: &str, app: &App) -> Value {
             Err(e) => Err(e.to_string()),
         },
 
+        // Typst compile
+        "typst_compile" => match serde_json::from_value::<crate::protocol::TypstCompileRequest>(request.params) {
+            Ok(req) => handlers::handle_typst_compile(&state, req).await.map(|r| serde_json::to_value(r).unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        },
+
         // ACP control reports (frontend → backend)
         "acp_report_session_created" => {
             let request_id = request.params.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
@@ -968,7 +974,8 @@ async fn list_connection_sessions_handler(
                 .get("sessions")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
-                    arr.iter()
+                    let mut sessions: Vec<_> = arr
+                        .iter()
                         .filter_map(|s| {
                             Some(crate::protocol::SessionListEntry {
                                 session_id: s.get("sessionId")?.as_str()?.to_string(),
@@ -978,7 +985,10 @@ async fn list_connection_sessions_handler(
                                 message_count: s.get("messageCount").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
                             })
                         })
-                        .collect::<Vec<_>>()
+                        .collect();
+                    // Most recent first (ISO 8601 strings sort lexicographically)
+                    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                    sessions
                 })
                 .unwrap_or_default();
             (StatusCode::OK, Json(serde_json::json!({ "sessions": sessions }))).into_response()

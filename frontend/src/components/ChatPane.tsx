@@ -866,7 +866,7 @@ function Header({
               {isListingSessions && <option value="" disabled>Loading…</option>}
               {availableSessions.map((s) => (
                 <option key={s.sessionId} value={s.sessionId}>
-                  {s.title || s.sessionId}
+                  {s.title || "Untitled"} — {s.sessionId}
                 </option>
               ))}
             </select>
@@ -895,7 +895,7 @@ function Header({
           >
             {availableSessions.map((s) => (
               <option key={s.sessionId} value={s.sessionId}>
-                {s.title || s.sessionId}
+                {s.title || "Untitled"} — {s.sessionId}
               </option>
             ))}
           </select>

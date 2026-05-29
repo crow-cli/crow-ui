@@ -157,3 +157,5 @@ export type { ConnectionCloseRequest } from "./ConnectionCloseRequest";
 export type { ConnectionCloseResponse } from "./ConnectionCloseResponse";
 export type { CreatePanelRequest } from "./CreatePanelRequest";
 export type { CreatePanelResponse } from "./CreatePanelResponse";
+export type { TypstCompileRequest } from "./TypstCompileRequest";
+export type { TypstCompileResponse } from "./TypstCompileResponse";

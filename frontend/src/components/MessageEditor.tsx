@@ -992,10 +992,10 @@ export default function MessageEditor({
           </div>
 
           {/* Bottom bar: model selector (left) + send/cancel (right) */}
-          <div className="shrink-0 flex items-center justify-between px-1.5 py-1">
+          <div className="shrink-0 flex items-center justify-end px-1.5 py-1">
             {/* Model selector */}
             {modelOptions.length > 0 && (
-              <div>
+              <div className="mr-auto">
                 <select
                   value={selectedModel}
                   onChange={(e) => {

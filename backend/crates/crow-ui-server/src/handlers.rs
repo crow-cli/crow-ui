@@ -338,11 +338,43 @@ pub fn handle_workspace_open(state: &AppState, req: WorkspaceOpenRequest) -> Res
     // Record in recently opened workspaces (SQLite)
     let _ = crow_ui_db::recent::add_recent_workspace(&state.db.lock(), &req.path);
 
+    // Auto-create .crow/docs template if it doesn't exist
+    let crow_docs = Path::new(&req.path).join(".crow").join("docs");
+    if !crow_docs.exists() {
+        let _ = ensure_crow_docs_template(&req.path);
+    }
+
     let root = Path::new(&req.path);
     let tree = crow_ui_workspace::FileTree::scan(root);
 
     let nodes = serialize_tree_nodes(&tree);
     Ok(WorkspaceOpenResponse { root: req.path, nodes: json!(nodes) })
+}
+
+fn ensure_crow_docs_template(workspace: &str) -> Result<(), String> {
+    let workspace_path = Path::new(workspace);
+    let docs_dir = workspace_path.join(".crow").join("docs");
+    let chapters_dir = docs_dir.join("chapters");
+    let journal_dir = docs_dir.join("journal");
+
+    std::fs::create_dir_all(&chapters_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&journal_dir).map_err(|e| e.to_string())?;
+
+    // Write template files if they don't exist
+    let shared_typ = include_str!("template/.crow/docs/shared.typ");
+    let index_typ = include_str!("template/.crow/docs/index.typ");
+
+    let shared_path = docs_dir.join("shared.typ");
+    if !shared_path.exists() {
+        std::fs::write(&shared_path, shared_typ).map_err(|e| e.to_string())?;
+    }
+
+    let index_path = docs_dir.join("index.typ");
+    if !index_path.exists() {
+        std::fs::write(&index_path, index_typ).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 pub fn handle_workspace_expand(state: &AppState, req: WorkspaceExpandRequest) -> Result<WorkspaceExpandResponse, String> {
@@ -1240,6 +1272,65 @@ pub fn handle_delete_agent_profile(state: &AppState, req: DeleteAgentProfileRequ
     }
 
     Ok(DeleteAgentProfileResponse { success: true })
+}
+
+// ---------------------------------------------------------------------------
+// Typst handlers
+// ---------------------------------------------------------------------------
+
+pub async fn handle_typst_compile(_state: &AppState, req: crate::protocol::TypstCompileRequest) -> Result<crate::protocol::TypstCompileResponse, String> {
+    let path = std::path::Path::new(&req.path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", req.path));
+    }
+
+    // Determine root: for .crow/docs files, root is the .crow/docs dir
+    // Otherwise, use the file's parent directory
+    let path_str = req.path.replace('\\', "/");
+    let root = if let Some(idx) = path_str.rfind("/.crow/docs/") {
+        // root is everything up to and including .crow/docs/
+        &path_str[..idx + "/.crow/docs".len()]
+    } else {
+        path.parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(".")
+    };
+
+    // Write compiled HTML to a temp file to avoid cluttering the workspace
+    let output_path = std::env::temp_dir().join(format!(
+        "crow-ui-typst-{}.html",
+        std::process::id()
+    ));
+
+    let output = tokio::process::Command::new("typst")
+        .args(&["compile", "--root", root, "--features", "html", "-f", "html"])
+        .arg(&req.path)
+        .arg(&output_path)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run typst: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Ok(crate::protocol::TypstCompileResponse {
+            html: String::new(),
+            success: false,
+            error: Some(format!("typst compile failed: {}", stderr)),
+        });
+    }
+
+    let html = tokio::fs::read_to_string(&output_path)
+        .await
+        .map_err(|e| format!("Failed to read compiled HTML: {e}"))?;
+
+    // Clean up temp file
+    let _ = tokio::fs::remove_file(&output_path).await;
+
+    Ok(crate::protocol::TypstCompileResponse {
+        html,
+        success: true,
+        error: None,
+    })
 }
 
 // ---------------------------------------------------------------------------

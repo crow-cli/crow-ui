@@ -17,6 +17,7 @@ import {
   FolderOpen,
   FileCode2,
   FileJson,
+  FileText,
   Settings,
   Activity,
   SquareSplitVertical,
@@ -49,6 +50,7 @@ import LlmConfigPane from "./components/LlmConfigPane";
 import AgentProfilePane from "./components/AgentProfilePane";
 import SearchPane from "./components/SearchPane";
 import MarkdownPreviewPane from "./components/MarkdownPreviewPane";
+import TypstPreviewPane from "./components/TypstPreviewPane";
 import WebPane from "./components/WebPane";
 import { FolderPicker } from "./components/FolderPicker";
 import CommandPalette, { type Command } from "./components/CommandPalette";
@@ -103,6 +105,8 @@ function getTabIcon(name: string): ReactNode {
     return <FileJson className="w-3.5 h-3.5 text-zinc-500" />;
   if (name.endsWith("(Preview)"))
     return <Eye className="w-3.5 h-3.5 text-violet-400" />;
+  if (name.endsWith("(Typst)"))
+    return <FileText className="w-3.5 h-3.5 text-amber-500" />;
   if (name === "Web")
     return <Globe className="w-3.5 h-3.5 text-violet-500" />;
   if (name === "LLM Config")
@@ -454,7 +458,7 @@ export default function App() {
       global: {
         tabEnableClose: true,
         tabEnableRename: false,
-        tabSetEnableMaximize: false,
+        tabSetEnableMaximize: true,
         tabSetEnableSingleTabStretch: false,
       },
       borders: [
@@ -1385,6 +1389,50 @@ export default function App() {
     [],
   );
 
+  // Open typst preview for a given editor tab
+  const openTypstPreview = useCallback(
+    (nodeId: string) => {
+      const model = layoutModelRef.current;
+      if (!model) return;
+      const node = model.getNodeById(nodeId);
+      if (!node || node.getType() !== "tab") return;
+
+      const tab = node as TabNode;
+      const path = tab.getConfig()?.path as string;
+      if (!path) return;
+
+      const previewId = `typst-${path}`;
+      // If preview already open, just select it
+      const existing = model.getNodeById(previewId);
+      if (existing) {
+        model.doAction(Actions.selectTab(previewId));
+        return;
+      }
+
+      // Add preview tab to the same tabset as the editor
+      const tabset = tab.getParent();
+      if (!tabset || tabset.getType() !== "tabset") return;
+
+      const fileName = path.split("/").pop() || path;
+      model.doAction(
+        Actions.addTab(
+          {
+            type: "tab",
+            id: previewId,
+            name: `${fileName} (Typst)`,
+            component: "typst-preview",
+            config: { path },
+          },
+          tabset.getId(),
+          DockLocation.CENTER,
+          -1,
+          true,
+        ),
+      );
+    },
+    [],
+  );
+
   // ── FlexLayout factory ──────────────────────────────────────────────────
 
   const layoutFactory = (node: TabNode) => {
@@ -1582,6 +1630,10 @@ export default function App() {
         const previewPath = node.getConfig()?.path as string;
         return <MarkdownPreviewPane key={previewPath} path={previewPath} />;
       }
+      case "typst-preview": {
+        const typstPath = node.getConfig()?.path as string;
+        return <TypstPreviewPane key={typstPath} path={typstPath} />;
+      }
       case "web":
         return <WebPane />;
       default:
@@ -1702,6 +1754,19 @@ export default function App() {
                           </ContextMenuItem>
                         </>
                       )}
+                    {node.getComponent() === "editor" &&
+                      (node.getConfig()?.path as string)?.endsWith(".typ") && (
+                        <>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            onClick={() => openTypstPreview(nodeId)}
+                            className="gap-2"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            Open Typst Preview
+                          </ContextMenuItem>
+                        </>
+                      )}
                     <ContextMenuSeparator />
                     <ContextMenuItem
                       onClick={() => closeTabNode(nodeId)}
@@ -1784,6 +1849,7 @@ function getLanguage(path: string): string {
     yaml: "yaml",
     toml: "toml",
     sh: "shell",
+    typ: "typst",
   };
   return map[ext] || "plaintext";
 }

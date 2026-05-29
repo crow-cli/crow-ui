@@ -331,6 +331,8 @@ impl AcpSession {
         let sid = target_session_id.to_string();
         *self.session_id.lock() = sid.clone();
         *self.session_id_cell.lock().await = sid.clone();
+        *self.config_options.lock() = result.get("configOptions").cloned();
+        *self.modes.lock() = result.get("modes").cloned();
 
         info!(
             "ACP session loaded: {} (connection: {}, agent: {})",

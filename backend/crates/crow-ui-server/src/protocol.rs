@@ -1402,6 +1402,25 @@ pub struct CreatePanelResponse {
     pub success: bool,
 }
 
+// ─── Typst Operations ──────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TypstCompileRequest {
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TypstCompileResponse {
+    pub html: String,
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
 // ─── Error Response ────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, TS)]

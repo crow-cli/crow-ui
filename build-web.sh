@@ -3,4 +3,5 @@ cd frontend \
     && cd .. \
     && cargo build \
     --release --package crow-ui-server \
-    --bin crow-ui-server 
+    --bin crow-ui-server \
+    -j 4
