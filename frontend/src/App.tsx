@@ -915,6 +915,9 @@ export default function App() {
       if (saved.layout) {
         try {
           const parsed: IJsonModel = JSON.parse(saved.layout);
+          // Force enable maximize on loaded layouts (old saves may have it disabled)
+          if (!parsed.global) parsed.global = {};
+          parsed.global.tabSetEnableMaximize = true;
           const model = Model.fromJson(parsed);
           model.setOnAllowDrop(onAllowDrop);
           layoutModelRef.current = model;

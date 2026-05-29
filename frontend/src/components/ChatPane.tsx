@@ -546,7 +546,6 @@ export default function ChatPane({
         hasSession={!!effectiveSessionId}
         isConnectionInitialized={isConnectionInitialized}
         isListingSessions={isListingSessions}
-        onClose={onClose}
         onInit={handleInit}
         onConnect={handleConnect}
         availableAgents={availableAgents}
@@ -762,7 +761,6 @@ function Header({
   hasSession,
   isConnectionInitialized,
   isListingSessions,
-  onClose,
   onInit,
   onConnect,
   availableAgents,
@@ -782,7 +780,6 @@ function Header({
   hasSession: boolean;
   isConnectionInitialized: boolean;
   isListingSessions: boolean;
-  onClose: () => void;
   onInit: () => void;
   onConnect: () => void;
   availableAgents: AgentConfig[];
@@ -900,12 +897,6 @@ function Header({
             ))}
           </select>
         )}
-        <button
-          onClick={onClose}
-          className="bg-transparent border-none text-text-secondary hover:text-text-primary text-lg px-1 py-0.5 cursor-pointer"
-        >
-          ✕
-        </button>
       </div>
     </div>
   );

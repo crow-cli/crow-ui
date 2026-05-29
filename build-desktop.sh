@@ -4,7 +4,7 @@ cd frontend \
     && cargo build \
     --release --package crow-ui-server \
     --bin crow-ui-server \
-    -j \
+    -j 4 \
     && cd electron \
     && bun run build \
     && cd ..
